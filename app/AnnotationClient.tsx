@@ -19,6 +19,7 @@ export default function AnnotationClient() {
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 });
   const [rim, setRim] = useState<number[] | null>(null);
   const [boxes, setBoxes] = useState<BallBox[]>([]);
+  const [showBallBoxes, setShowBallBoxes] = useState(true);
   const [completed, setCompleted] = useState<BallBox[][]>([]);
   const [zoom, setZoom] = useState(1);
   const [mode, setMode] = useState<"rim" | "ball">("rim");
@@ -45,6 +46,7 @@ export default function AnnotationClient() {
     setVideoName(file.name);
     setRim(null);
     setBoxes([]);
+    setShowBallBoxes(true);
     setCompleted([]);
     setShotEvents([]);
     setAnnotationName(`${file.name.replace(/\.[^/.]+$/, "") || "basketball"}-annotations.json`);
@@ -121,7 +123,7 @@ export default function AnnotationClient() {
           <div className="video" style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}>
           <video ref={video} controls src={videoSource} onTimeUpdate={() => video.current && setCurrentTime(video.current.currentTime)} onLoadedMetadata={() => video.current && setDimensions({ width: video.current.videoWidth, height: video.current.videoHeight })} />
           {rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
-          {boxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
+          {showBallBoxes && boxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
           </div>
         </div>
         <aside>
@@ -132,6 +134,7 @@ export default function AnnotationClient() {
           <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket", points: 3 }])}>记录进 3 分</button>
           <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "missed_shot" }])}>记录此时未进球</button>
           <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
+          <button onClick={() => setShowBallBoxes(!showBallBoxes)} disabled={!boxes.length}>{showBallBoxes ? "隐藏已标篮球框" : "显示已标篮球框"}</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
