@@ -27,7 +27,8 @@ export default function AnnotationClient() {
   const [madeBaskets, setMadeBaskets] = useState<number[]>([]);
 
   function position(event: React.PointerEvent<HTMLDivElement>): Coordinate {
-    const box = event.currentTarget.getBoundingClientRect();
+    const surface = event.currentTarget.querySelector(".video") ?? event.currentTarget;
+    const box = surface.getBoundingClientRect();
     return {
       x: Math.round(((event.clientX - box.left) * dimensions.width) / box.width),
       y: Math.round(((event.clientY - box.top) * dimensions.height) / box.height),
