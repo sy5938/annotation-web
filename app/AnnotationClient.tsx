@@ -121,7 +121,7 @@ export default function AnnotationClient() {
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
-          <button onClick={save} disabled={!rim || (!boxes.length && !completed.length)}>下载全部标注 JSON</button>
+          <button onClick={save} disabled={!madeBaskets.length && !rim && !boxes.length && !completed.length}>下载全部标注 JSON</button>
         </aside>
       </section>
     </main>
