@@ -5,7 +5,7 @@ import { ChangeEvent, useRef, useState } from "react";
 type Phase = "approach" | "rim" | "below";
 type Coordinate = { x: number; y: number };
 type BallBox = Coordinate & { x2: number; y2: number; time_seconds: number; phase: Phase };
-type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot" };
+type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot"; points?: 2 | 3 };
 
 const phaseLabels: Record<Phase, string> = {
   approach: "① 接近篮筐",
@@ -90,7 +90,7 @@ export default function AnnotationClient() {
     <main>
       <p className="eyebrow">篮球高光 · 远程标注工作台</p>
       <h1>一球一组，标完立即清屏</h1>
-      <p>先快速剪辑：暂停到出手结果附近，记录“进球”或“未进球”。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
+      <p>先快速剪辑：暂停到出手结果附近，记录“未进 / 进 2 分 / 进 3 分”。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
       <div className="toolbar">
         <label className="file-picker">选择本机 1080P 视频<input type="file" accept="video/*" onChange={selectVideo} /></label>
         <button className={mode === "rim" ? "selected" : ""} onClick={() => setMode("rim")}>框选篮筐</button>
@@ -126,9 +126,10 @@ export default function AnnotationClient() {
         </div>
         <aside>
           <h2>当前工作区</h2>
-          <ol><li>快速剪辑：暂停到结果附近，点“进球”或“未进球”。</li><li>训练检测：框一次篮筐，再各框 3 个篮球帧。</li><li>每个视频会下载独立、同名的 JSON；发给我即可裁切。</li></ol>
-          <p>标注文件：{annotationName}</p><p>篮筐：{rim ? "已标" : "未标"}</p><p>当前框：{boxes.length}</p><p>已完成进球：{completed.length} 组</p><p>进球：{shotEvents.filter((shot) => shot.event === "made_basket").length}　未进：{shotEvents.filter((shot) => shot.event === "missed_shot").length}</p>
-          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket" }])}>记录此时进球</button>
+          <ol><li>快速剪辑：暂停到结果附近，点“未进 / 进 2 分 / 进 3 分”。</li><li>训练检测：框一次篮筐，再各框 3 个篮球帧。</li><li>每个视频会下载独立、同名的 JSON；发给我即可裁切。</li></ol>
+          <p>标注文件：{annotationName}</p><p>篮筐：{rim ? "已标" : "未标"}</p><p>当前框：{boxes.length}</p><p>已完成进球：{completed.length} 组</p><p>进 2 分：{shotEvents.filter((shot) => shot.points === 2).length}　进 3 分：{shotEvents.filter((shot) => shot.points === 3).length}　未进：{shotEvents.filter((shot) => shot.event === "missed_shot").length}</p>
+          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket", points: 2 }])}>记录进 2 分</button>
+          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket", points: 3 }])}>记录进 3 分</button>
           <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "missed_shot" }])}>记录此时未进球</button>
           <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
