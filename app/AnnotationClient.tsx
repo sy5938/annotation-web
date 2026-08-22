@@ -5,6 +5,7 @@ import { ChangeEvent, useRef, useState } from "react";
 type Phase = "approach" | "rim" | "below";
 type Coordinate = { x: number; y: number };
 type BallBox = Coordinate & { x2: number; y2: number; time_seconds: number; phase: Phase };
+type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot" };
 
 const phaseLabels: Record<Phase, string> = {
   approach: "① 接近篮筐",
@@ -24,7 +25,9 @@ export default function AnnotationClient() {
   const [phase, setPhase] = useState<Phase>("approach");
   const [start, setStart] = useState<Coordinate | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [madeBaskets, setMadeBaskets] = useState<number[]>([]);
+  const [shotEvents, setShotEvents] = useState<ShotEvent[]>([]);
+  const [videoName, setVideoName] = useState("preview-1080.mp4");
+  const [annotationName, setAnnotationName] = useState("preview-1080-annotations.json");
 
   function position(event: React.PointerEvent<HTMLDivElement>): Coordinate {
     const surface = event.currentTarget.querySelector(".video") ?? event.currentTarget;
@@ -39,10 +42,12 @@ export default function AnnotationClient() {
     const file = event.target.files?.[0];
     if (!file) return;
     setVideoSource(URL.createObjectURL(file));
+    setVideoName(file.name);
     setRim(null);
     setBoxes([]);
     setCompleted([]);
-    setMadeBaskets([]);
+    setShotEvents([]);
+    setAnnotationName(`${file.name.replace(/\.[^/.]+$/, "") || "basketball"}-annotations.json`);
   }
 
   function save() {
@@ -52,9 +57,16 @@ export default function AnnotationClient() {
       x: Math.round((box.x + box.x2) / 2),
       y: Math.round((box.y + box.y2) / 2),
     }));
-    const content = JSON.stringify({ rim_roi: rim, basketball_boxes: allBoxes, basketball_points, made_baskets: madeBaskets.map((time_seconds) => ({ time_seconds })) }, null, 2);
+    const content = JSON.stringify({
+      source_video: videoName,
+      rim_roi: rim,
+      basketball_boxes: allBoxes,
+      basketball_points,
+      shot_events: shotEvents,
+      made_baskets: shotEvents.filter((shot) => shot.event === "made_basket").map(({ time_seconds }) => ({ time_seconds })),
+    }, null, 2);
     const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
-    const link = Object.assign(document.createElement("a"), { href: url, download: "basketball-annotations.json" });
+    const link = Object.assign(document.createElement("a"), { href: url, download: annotationName });
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -78,7 +90,7 @@ export default function AnnotationClient() {
     <main>
       <p className="eyebrow">篮球高光 · 远程标注工作台</p>
       <h1>一球一组，标完立即清屏</h1>
-      <p>想先快速剪辑：暂停到进筐附近并记录进球时间。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
+      <p>先快速剪辑：暂停到出手结果附近，记录“进球”或“未进球”。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
       <div className="toolbar">
         <label className="file-picker">选择本机 1080P 视频<input type="file" accept="video/*" onChange={selectVideo} /></label>
         <button className={mode === "rim" ? "selected" : ""} onClick={() => setMode("rim")}>框选篮筐</button>
@@ -114,14 +126,15 @@ export default function AnnotationClient() {
         </div>
         <aside>
           <h2>当前工作区</h2>
-          <ol><li>快速剪辑：暂停到进筐附近，点“记录此时进球”。</li><li>训练检测：框一次篮筐，再各框 3 个篮球帧。</li><li>最后下载 JSON 发给我。</li></ol>
-          <p>篮筐：{rim ? "已标" : "未标"}</p><p>当前框：{boxes.length}</p><p>已完成进球：{completed.length} 组</p><p>进球时间：{madeBaskets.length}</p>
-          <button onClick={() => setMadeBaskets([...madeBaskets, Number(currentTime.toFixed(2))])}>记录此时进球</button>
-          <button onClick={() => setMadeBaskets(madeBaskets.slice(0, -1))} disabled={!madeBaskets.length}>撤销上一个进球</button>
+          <ol><li>快速剪辑：暂停到结果附近，点“进球”或“未进球”。</li><li>训练检测：框一次篮筐，再各框 3 个篮球帧。</li><li>每个视频会下载独立、同名的 JSON；发给我即可裁切。</li></ol>
+          <p>标注文件：{annotationName}</p><p>篮筐：{rim ? "已标" : "未标"}</p><p>当前框：{boxes.length}</p><p>已完成进球：{completed.length} 组</p><p>进球：{shotEvents.filter((shot) => shot.event === "made_basket").length}　未进：{shotEvents.filter((shot) => shot.event === "missed_shot").length}</p>
+          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket" }])}>记录此时进球</button>
+          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "missed_shot" }])}>记录此时未进球</button>
+          <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
-          <button onClick={save} disabled={!madeBaskets.length && !rim && !boxes.length && !completed.length}>下载全部标注 JSON</button>
+          <button onClick={save} disabled={!shotEvents.length && !rim && !boxes.length && !completed.length}>下载全部标注 JSON</button>
         </aside>
       </section>
     </main>
