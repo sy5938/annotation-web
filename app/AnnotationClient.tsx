@@ -95,6 +95,12 @@ export default function AnnotationClient() {
     setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event, points, scorer }]);
   }
 
+  function toggleSavedBoxes() {
+    setShowAnnotations(!showAnnotations);
+    setDraft(null);
+    setMode("idle");
+  }
+
   function selection(start: Coordinate, end: Coordinate): Selection {
     return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), x2: Math.max(start.x, end.x), y2: Math.max(start.y, end.y) };
   }
@@ -142,9 +148,11 @@ export default function AnnotationClient() {
           <div className="video" style={{ cursor: mode === "rim" || mode === "ball" ? "crosshair" : "default" }}>
           <video ref={video} controls src={videoSource} onTimeUpdate={() => video.current && setCurrentTime(video.current.currentTime)} onLoadedMetadata={() => video.current && setDimensions({ width: video.current.videoWidth, height: video.current.videoHeight })} />
           {mode !== "idle" && <div className="drawing-layer" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = position(event); setStart(point); setDraft({ ...point, x2: point.x, y2: point.y }); }} onPointerMove={(event) => { if (start) setDraft(selection(start, position(event))); }} onPointerUp={(event) => { if (!start) return; const box = selection(start, position(event)); if (box.x2 - box.x >= 3 && box.y2 - box.y >= 3) { if (mode === "rim") setRim([box.x, box.y, box.x2, box.y2]); else setBoxes([...boxes, { ...box, phase, time_seconds: Number(currentTime.toFixed(2)) }]); } setStart(null); setDraft(null); setMode("idle"); }} onPointerCancel={() => { setStart(null); setDraft(null); setMode("idle"); }} />}
-          {showAnnotations && rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
-          {showAnnotations && allBoxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
-          {draft && <div className="draft" style={styleFor(draft)} />}
+          <div className="saved-boxes" style={{ visibility: showAnnotations ? "visible" : "hidden" }}>
+            {rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
+            {allBoxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
+          </div>
+          {showAnnotations && draft && <div className="draft" style={styleFor(draft)} />}
           </div>
         </div>
         <aside className="controls-panel">
@@ -152,7 +160,7 @@ export default function AnnotationClient() {
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
           <button onClick={() => setRimLocked(true)} disabled={!rim || rimLocked}>{rimLocked ? "篮筐位置已锁定" : "确认并锁定篮筐位置"}</button>
           <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
-          <button onClick={() => setShowAnnotations(!showAnnotations)} disabled={!rim && !allBoxes.length}>{showAnnotations ? "隐藏已框选的框" : "显示已框选的框"}</button>
+          <button onClick={toggleSavedBoxes} disabled={!rim && !allBoxes.length}>{showAnnotations ? "隐藏已框选的蓝框" : "显示已框选的蓝框"}</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
