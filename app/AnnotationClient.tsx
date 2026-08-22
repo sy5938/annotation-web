@@ -5,7 +5,8 @@ import { ChangeEvent, useRef, useState } from "react";
 type Phase = "approach" | "rim" | "below";
 type Coordinate = { x: number; y: number };
 type BallBox = Coordinate & { x2: number; y2: number; time_seconds: number; phase: Phase };
-type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot"; points?: 2 | 3 };
+type Player = "甲" | "乙";
+type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot"; points?: 2 | 3; scorer: Player };
 
 const phaseLabels: Record<Phase, string> = {
   approach: "① 接近篮筐",
@@ -19,16 +20,20 @@ export default function AnnotationClient() {
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 });
   const [rim, setRim] = useState<number[] | null>(null);
   const [boxes, setBoxes] = useState<BallBox[]>([]);
-  const [showBallBoxes, setShowBallBoxes] = useState(true);
+  const [showAnnotations, setShowAnnotations] = useState(true);
   const [completed, setCompleted] = useState<BallBox[][]>([]);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [mode, setMode] = useState<"rim" | "ball">("rim");
   const [phase, setPhase] = useState<Phase>("approach");
   const [start, setStart] = useState<Coordinate | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [shotEvents, setShotEvents] = useState<ShotEvent[]>([]);
+  const [scorer, setScorer] = useState<Player>("甲");
   const [videoName, setVideoName] = useState("preview-1080.mp4");
   const [annotationName, setAnnotationName] = useState("preview-1080-annotations.json");
+  const panStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const allBoxes = [...completed.flat(), ...boxes];
 
   function position(event: React.PointerEvent<HTMLDivElement>): Coordinate {
     const surface = event.currentTarget.querySelector(".video") ?? event.currentTarget;
@@ -46,14 +51,14 @@ export default function AnnotationClient() {
     setVideoName(file.name);
     setRim(null);
     setBoxes([]);
-    setShowBallBoxes(true);
+    setShowAnnotations(true);
+    setPan({ x: 0, y: 0 });
     setCompleted([]);
     setShotEvents([]);
     setAnnotationName(`${file.name.replace(/\.[^/.]+$/, "") || "basketball"}-annotations.json`);
   }
 
   function save() {
-    const allBoxes = [...completed.flat(), ...boxes];
     const basketball_points = allBoxes.map((box) => ({
       time_seconds: box.time_seconds,
       x: Math.round((box.x + box.x2) / 2),
@@ -77,6 +82,15 @@ export default function AnnotationClient() {
     if (!video.current) return;
     video.current.pause();
     video.current.currentTime = Math.max(0, video.current.currentTime + frames / 30);
+  }
+
+  function formatTime(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
+  }
+
+  function recordShot(event: "made_basket" | "missed_shot", points?: 2 | 3) {
+    setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event, points, scorer }]);
   }
 
   function styleFor(box: { x: number; y: number; x2: number; y2: number }) {
@@ -109,8 +123,21 @@ export default function AnnotationClient() {
       <section>
         <div
           className="video-shell"
-          onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setStart(position(event)); }}
+          onContextMenu={(event) => event.preventDefault()}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            if (event.button === 2 && zoom > 1) {
+              panStart.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
+              return;
+            }
+            if (event.button === 0) setStart(position(event));
+          }}
+          onPointerMove={(event) => {
+            if (!panStart.current) return;
+            setPan({ x: panStart.current.panX + event.clientX - panStart.current.x, y: panStart.current.panY + event.clientY - panStart.current.y });
+          }}
           onPointerUp={(event) => {
+            if (panStart.current) { panStart.current = null; return; }
             if (!start) return;
             const end = position(event);
             const box = { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), x2: Math.max(start.x, end.x), y2: Math.max(start.y, end.y) };
@@ -119,26 +146,30 @@ export default function AnnotationClient() {
             else if (video.current) setBoxes([...boxes, { ...box, phase, time_seconds: Number(video.current.currentTime.toFixed(2)) }]);
             setStart(null);
           }}
+          onPointerCancel={() => { panStart.current = null; setStart(null); }}
         >
-          <div className="video" style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}>
+          <div className="video" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "top left", cursor: zoom > 1 ? "grab" : "crosshair" }}>
           <video ref={video} controls src={videoSource} onTimeUpdate={() => video.current && setCurrentTime(video.current.currentTime)} onLoadedMetadata={() => video.current && setDimensions({ width: video.current.videoWidth, height: video.current.videoHeight })} />
-          {rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
-          {showBallBoxes && boxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
+          {showAnnotations && rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
+          {showAnnotations && allBoxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
           </div>
         </div>
         <aside>
-          <h2>当前工作区</h2>
-          <ol><li>快速剪辑：暂停到结果附近，点“未进 / 进 2 分 / 进 3 分”。</li><li>训练检测：框一次篮筐，再各框 3 个篮球帧。</li><li>每个视频会下载独立、同名的 JSON；发给我即可裁切。</li></ol>
-          <p>标注文件：{annotationName}</p><p>篮筐：{rim ? "已标" : "未标"}</p><p>当前框：{boxes.length}</p><p>已完成进球：{completed.length} 组</p><p>进 2 分：{shotEvents.filter((shot) => shot.points === 2).length}　进 3 分：{shotEvents.filter((shot) => shot.points === 3).length}　未进：{shotEvents.filter((shot) => shot.event === "missed_shot").length}</p>
-          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket", points: 2 }])}>记录进 2 分</button>
-          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "made_basket", points: 3 }])}>记录进 3 分</button>
-          <button onClick={() => setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "missed_shot" }])}>记录此时未进球</button>
+          <h2>本次标注</h2>
+          <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
+          <div className="scorer-picker"><button className={scorer === "甲" ? "selected" : ""} onClick={() => setScorer("甲")}>甲 · 第一人</button><button className={scorer === "乙" ? "selected" : ""} onClick={() => setScorer("乙")}>乙 · 第二人</button></div>
+          <button onClick={() => recordShot("made_basket", 2)}>记录 {scorer} 进 2 分</button>
+          <button onClick={() => recordShot("made_basket", 3)}>记录 {scorer} 进 3 分</button>
+          <button onClick={() => recordShot("missed_shot")}>记录 {scorer} 未进球</button>
           <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
-          <button onClick={() => setShowBallBoxes(!showBallBoxes)} disabled={!boxes.length}>{showBallBoxes ? "隐藏已标篮球框" : "显示已标篮球框"}</button>
+          <button onClick={() => setShowAnnotations(!showAnnotations)} disabled={!rim && !allBoxes.length}>{showAnnotations ? "隐藏全部标记框" : "显示全部标记框"}</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
           <button onClick={save} disabled={!shotEvents.length && !rim && !boxes.length && !completed.length}>下载全部标注 JSON</button>
+          <h3>已记录</h3>
+          <ul className="event-list">{shotEvents.map((shot, index) => <li key={`${shot.time_seconds}-${index}`}><time>{formatTime(shot.time_seconds)}</time><span>{shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : "未进"}</span></li>)}</ul>
+          <details><summary>标注说明</summary><p>剪辑只记录结果即可。训练检测时，框一次篮筐，再各框 3 个篮球帧。放大后按住鼠标右键可拖动画面。</p><p>标注文件：{annotationName}</p></details>
         </aside>
       </section>
     </main>
