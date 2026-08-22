@@ -7,7 +7,7 @@ type Coordinate = { x: number; y: number };
 type Selection = Coordinate & { x2: number; y2: number };
 type BallBox = Coordinate & { x2: number; y2: number; time_seconds: number; phase: Phase };
 type Player = "甲" | "乙";
-type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot"; points?: 2 | 3; scorer: Player };
+type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot"; points?: 2 | 3; scorer: Player; defender: Player };
 
 const phaseLabels: Record<Phase, string> = {
   approach: "① 接近篮筐",
@@ -30,6 +30,7 @@ export default function AnnotationClient() {
   const [draft, setDraft] = useState<Selection | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [shotEvents, setShotEvents] = useState<ShotEvent[]>([]);
+  const [playerNames, setPlayerNames] = useState<Record<Player, string>>({ 甲: "甲", 乙: "乙" });
   const [videoName, setVideoName] = useState("preview-1080.mp4");
   const [annotationName, setAnnotationName] = useState("preview-1080-annotations.json");
   const allBoxes = [...completed.flat(), ...boxes];
@@ -56,6 +57,7 @@ export default function AnnotationClient() {
     setShowAnnotations(true);
     setCompleted([]);
     setShotEvents([]);
+    setPlayerNames({ 甲: "甲", 乙: "乙" });
     setDraft(null);
     setAnnotationName(`${file.name.replace(/\.[^/.]+$/, "") || "basketball"}-annotations.json`);
   }
@@ -71,8 +73,9 @@ export default function AnnotationClient() {
       rim_roi: rim,
       basketball_boxes: allBoxes,
       basketball_points,
+      players: playerNames,
       shot_events: shotEvents,
-      made_baskets: shotEvents.filter((shot) => shot.event === "made_basket").map(({ time_seconds }) => ({ time_seconds })),
+      made_baskets: shotEvents.filter((shot) => shot.event === "made_basket").map(({ time_seconds, points, scorer, defender }) => ({ time_seconds, points, scorer, defender })),
     }, null, 2);
     const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
     const link = Object.assign(document.createElement("a"), { href: url, download: annotationName });
@@ -92,7 +95,8 @@ export default function AnnotationClient() {
   }
 
   function recordShot(scorer: Player, event: "made_basket" | "missed_shot", points?: 2 | 3) {
-    setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event, points, scorer }]);
+    const defender = scorer === "甲" ? "乙" : "甲";
+    setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event, points, scorer, defender }]);
   }
 
   function toggleSavedBoxes() {
@@ -121,8 +125,8 @@ export default function AnnotationClient() {
       <p>先快速剪辑：暂停到出手结果附近，记录“未进 / 进 2 分 / 进 3 分”。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
       <div className="toolbar">
         <label className="file-picker">选择本机 1080P 视频<input type="file" accept="video/*" onChange={selectVideo} /></label>
-        <button className={mode === "rim" ? "selected" : ""} onClick={() => { video.current?.pause(); setMode("rim"); }} disabled={rimLocked}>开始框选篮筐</button>
-        <button className={mode === "ball" ? "selected" : ""} onClick={() => { video.current?.pause(); setMode("ball"); }}>开始框选篮球</button>
+        <button className={mode === "rim" ? "selected" : ""} onClick={() => { video.current?.pause(); setShowAnnotations(true); setMode("rim"); }} disabled={rimLocked}>开始框选篮筐</button>
+        <button className={mode === "ball" ? "selected" : ""} onClick={() => { video.current?.pause(); setShowAnnotations(true); setMode("ball"); }}>开始框选篮球</button>
       </div>
       <div className="phases">
         <button onClick={() => stepFrames(-5)}>后退 5 帧</button><button onClick={() => stepFrames(-1)}>后退 1 帧</button>
@@ -135,14 +139,16 @@ export default function AnnotationClient() {
           <h2>得分记录</h2>
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
           <div className="score-grid">
-            <strong>甲 · 第一人</strong><strong>乙 · 第二人</strong>
-            <button onClick={() => recordShot("甲", "made_basket", 2)}>甲 +2</button><button onClick={() => recordShot("乙", "made_basket", 2)}>乙 +2</button>
-            <button onClick={() => recordShot("甲", "made_basket", 3)}>甲 +3</button><button onClick={() => recordShot("乙", "made_basket", 3)}>乙 +3</button>
-            <button onClick={() => recordShot("甲", "missed_shot")}>甲 未进</button><button onClick={() => recordShot("乙", "missed_shot")}>乙 未进</button>
+            <div className="player-column"><strong>甲进攻</strong><small>乙防守</small><input aria-label="甲的名字" value={playerNames.甲} onChange={(event) => setPlayerNames({ ...playerNames, 甲: event.target.value })} /></div>
+            <div className="player-column"><strong>乙进攻</strong><small>甲防守</small><input aria-label="乙的名字" value={playerNames.乙} onChange={(event) => setPlayerNames({ ...playerNames, 乙: event.target.value })} /></div>
+            <button onClick={() => recordShot("甲", "made_basket", 2)}>{playerNames.甲 || "甲"} +2</button><button onClick={() => recordShot("乙", "made_basket", 2)}>{playerNames.乙 || "乙"} +2</button>
+            <button onClick={() => recordShot("甲", "made_basket", 3)}>{playerNames.甲 || "甲"} +3</button><button onClick={() => recordShot("乙", "made_basket", 3)}>{playerNames.乙 || "乙"} +3</button>
+            <button onClick={() => recordShot("甲", "missed_shot")}>{playerNames.甲 || "甲"} 未进</button><button onClick={() => recordShot("乙", "missed_shot")}>{playerNames.乙 || "乙"} 未进</button>
           </div>
+          <button className="undo-score" onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
           <p className="score-total">总分　甲 <strong>{score("甲")}</strong> ： <strong>{score("乙")}</strong> 乙</p>
           <h3>已记录</h3>
-          <ul className="event-list">{shotEvents.map((shot, index) => <li key={`${shot.time_seconds}-${index}`}><time>{formatTime(shot.time_seconds)}</time><span>{shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : "未进"}</span></li>)}</ul>
+          <ul className="event-list">{shotEvents.map((shot, index) => <li key={`${shot.time_seconds}-${index}`}><time>{formatTime(shot.time_seconds)}</time><span>{playerNames[shot.scorer] || shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : "未进"}<small>{playerNames[shot.defender] || shot.defender} 防守</small></span></li>)}</ul>
         </aside>
         <div className="video-shell">
           <div className="video" style={{ cursor: mode === "rim" || mode === "ball" ? "crosshair" : "default" }}>
@@ -152,14 +158,13 @@ export default function AnnotationClient() {
             {rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
             {allBoxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
           </div>
-          {showAnnotations && draft && <div className="draft" style={styleFor(draft)} />}
+          {draft && <div className="draft" style={styleFor(draft)} />}
           </div>
         </div>
         <aside className="controls-panel">
           <h2>视频与框选</h2>
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
           <button onClick={() => setRimLocked(true)} disabled={!rim || rimLocked}>{rimLocked ? "篮筐位置已锁定" : "确认并锁定篮筐位置"}</button>
-          <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
           <button onClick={toggleSavedBoxes} disabled={!rim && !allBoxes.length}>{showAnnotations ? "隐藏已框选的蓝框" : "显示已框选的蓝框"}</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
