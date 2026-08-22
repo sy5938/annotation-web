@@ -7,7 +7,7 @@ type Coordinate = { x: number; y: number };
 type Selection = Coordinate & { x2: number; y2: number };
 type BallBox = Coordinate & { x2: number; y2: number; time_seconds: number; phase: Phase };
 type Player = "甲" | "乙";
-type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot"; points?: 2 | 3; scorer: Player; defender: Player };
+type ShotEvent = { time_seconds: number; event: "made_basket" | "missed_shot" | "good_defense"; points?: 2 | 3; scorer: Player };
 
 const phaseLabels: Record<Phase, string> = {
   approach: "① 接近篮筐",
@@ -31,6 +31,7 @@ export default function AnnotationClient() {
   const [currentTime, setCurrentTime] = useState(0);
   const [shotEvents, setShotEvents] = useState<ShotEvent[]>([]);
   const [playerNames, setPlayerNames] = useState<Record<Player, string>>({ 甲: "甲", 乙: "乙" });
+  const [previousScores, setPreviousScores] = useState<Record<Player, number>>({ 甲: 0, 乙: 0 });
   const [videoName, setVideoName] = useState("preview-1080.mp4");
   const [annotationName, setAnnotationName] = useState("preview-1080-annotations.json");
   const allBoxes = [...completed.flat(), ...boxes];
@@ -58,6 +59,7 @@ export default function AnnotationClient() {
     setCompleted([]);
     setShotEvents([]);
     setPlayerNames({ 甲: "甲", 乙: "乙" });
+    setPreviousScores({ 甲: 0, 乙: 0 });
     setDraft(null);
     setAnnotationName(`${file.name.replace(/\.[^/.]+$/, "") || "basketball"}-annotations.json`);
   }
@@ -74,8 +76,10 @@ export default function AnnotationClient() {
       basketball_boxes: allBoxes,
       basketball_points,
       players: playerNames,
+      previous_scores: previousScores,
+      total_scores: { 甲: previousScores.甲 + score("甲"), 乙: previousScores.乙 + score("乙") },
       shot_events: shotEvents,
-      made_baskets: shotEvents.filter((shot) => shot.event === "made_basket").map(({ time_seconds, points, scorer, defender }) => ({ time_seconds, points, scorer, defender })),
+      made_baskets: shotEvents.filter((shot) => shot.event === "made_basket").map(({ time_seconds, points, scorer }) => ({ time_seconds, points, scorer })),
     }, null, 2);
     const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
     const link = Object.assign(document.createElement("a"), { href: url, download: annotationName });
@@ -95,8 +99,11 @@ export default function AnnotationClient() {
   }
 
   function recordShot(scorer: Player, event: "made_basket" | "missed_shot", points?: 2 | 3) {
-    const defender = scorer === "甲" ? "乙" : "甲";
-    setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event, points, scorer, defender }]);
+    setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event, points, scorer }]);
+  }
+
+  function recordGoodDefense(player: Player) {
+    setShotEvents([...shotEvents, { time_seconds: Number(currentTime.toFixed(2)), event: "good_defense", scorer: player }]);
   }
 
   function toggleSavedBoxes() {
@@ -139,16 +146,18 @@ export default function AnnotationClient() {
           <h2>得分记录</h2>
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
           <div className="score-grid">
-            <div className="player-column"><strong>甲进攻</strong><small>乙防守</small><input aria-label="甲的名字" value={playerNames.甲} onChange={(event) => setPlayerNames({ ...playerNames, 甲: event.target.value })} /></div>
-            <div className="player-column"><strong>乙进攻</strong><small>甲防守</small><input aria-label="乙的名字" value={playerNames.乙} onChange={(event) => setPlayerNames({ ...playerNames, 乙: event.target.value })} /></div>
+            <div className="player-column"><strong>甲 · 第一人</strong><input aria-label="甲的名字" value={playerNames.甲} onChange={(event) => setPlayerNames({ ...playerNames, 甲: event.target.value })} /></div>
+            <div className="player-column"><strong>乙 · 第二人</strong><input aria-label="乙的名字" value={playerNames.乙} onChange={(event) => setPlayerNames({ ...playerNames, 乙: event.target.value })} /></div>
             <button onClick={() => recordShot("甲", "made_basket", 2)}>{playerNames.甲 || "甲"} +2</button><button onClick={() => recordShot("乙", "made_basket", 2)}>{playerNames.乙 || "乙"} +2</button>
             <button onClick={() => recordShot("甲", "made_basket", 3)}>{playerNames.甲 || "甲"} +3</button><button onClick={() => recordShot("乙", "made_basket", 3)}>{playerNames.乙 || "乙"} +3</button>
             <button onClick={() => recordShot("甲", "missed_shot")}>{playerNames.甲 || "甲"} 未进</button><button onClick={() => recordShot("乙", "missed_shot")}>{playerNames.乙 || "乙"} 未进</button>
+            <button className="defense-button" onClick={() => recordGoodDefense("甲")}>甲 好防守</button><button className="defense-button" onClick={() => recordGoodDefense("乙")}>乙 好防守</button>
           </div>
           <button className="undo-score" onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
-          <p className="score-total">总分　甲 <strong>{score("甲")}</strong> ： <strong>{score("乙")}</strong> 乙</p>
+          <div className="previous-score"><label>上一轮 {playerNames.甲 || "甲"}<input aria-label="甲上一轮得分" type="number" min="0" value={previousScores.甲 || ""} onChange={(event) => setPreviousScores({ ...previousScores, 甲: Math.max(0, Number(event.target.value)) })} /></label><label>{playerNames.乙 || "乙"}<input aria-label="乙上一轮得分" type="number" min="0" value={previousScores.乙 || ""} onChange={(event) => setPreviousScores({ ...previousScores, 乙: Math.max(0, Number(event.target.value)) })} /></label></div>
+          <p className="score-total">总分　{playerNames.甲 || "甲"} <strong>{previousScores.甲 + score("甲")}</strong> ： <strong>{previousScores.乙 + score("乙")}</strong> {playerNames.乙 || "乙"}</p>
           <h3>已记录</h3>
-          <ul className="event-list">{shotEvents.map((shot, index) => <li key={`${shot.time_seconds}-${index}`}><time>{formatTime(shot.time_seconds)}</time><span>{playerNames[shot.scorer] || shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : "未进"}<small>{playerNames[shot.defender] || shot.defender} 防守</small></span></li>)}</ul>
+          <ul className="event-list">{shotEvents.slice().reverse().map((shot, reverseIndex) => <li key={`${shot.time_seconds}-${shotEvents.length - reverseIndex - 1}`}><time>{formatTime(shot.time_seconds)}</time><span>{playerNames[shot.scorer] || shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : shot.event === "missed_shot" ? "未进" : "好防守"}</span></li>)}</ul>
         </aside>
         <div className="video-shell">
           <div className="video" style={{ cursor: mode === "rim" || mode === "ball" ? "crosshair" : "default" }}>
