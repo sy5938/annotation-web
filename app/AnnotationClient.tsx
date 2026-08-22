@@ -19,11 +19,10 @@ export default function AnnotationClient() {
   const [videoSource, setVideoSource] = useState("/preview-1080.mp4");
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 });
   const [rim, setRim] = useState<number[] | null>(null);
+  const [rimLocked, setRimLocked] = useState(false);
   const [boxes, setBoxes] = useState<BallBox[]>([]);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [completed, setCompleted] = useState<BallBox[][]>([]);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [mode, setMode] = useState<"rim" | "ball">("rim");
   const [phase, setPhase] = useState<Phase>("approach");
   const [start, setStart] = useState<Coordinate | null>(null);
@@ -31,7 +30,6 @@ export default function AnnotationClient() {
   const [shotEvents, setShotEvents] = useState<ShotEvent[]>([]);
   const [videoName, setVideoName] = useState("preview-1080.mp4");
   const [annotationName, setAnnotationName] = useState("preview-1080-annotations.json");
-  const panStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const allBoxes = [...completed.flat(), ...boxes];
 
   function position(event: React.PointerEvent<HTMLDivElement>): Coordinate {
@@ -49,9 +47,9 @@ export default function AnnotationClient() {
     setVideoSource(URL.createObjectURL(file));
     setVideoName(file.name);
     setRim(null);
+    setRimLocked(false);
     setBoxes([]);
     setShowAnnotations(true);
-    setPan({ x: 0, y: 0 });
     setCompleted([]);
     setShotEvents([]);
     setAnnotationName(`${file.name.replace(/\.[^/.]+$/, "") || "basketball"}-annotations.json`);
@@ -108,10 +106,8 @@ export default function AnnotationClient() {
       <p>先快速剪辑：暂停到出手结果附近，记录“未进 / 进 2 分 / 进 3 分”。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
       <div className="toolbar">
         <label className="file-picker">选择本机 1080P 视频<input type="file" accept="video/*" onChange={selectVideo} /></label>
-        <button className={mode === "rim" ? "selected" : ""} onClick={() => setMode("rim")}>框选篮筐</button>
+        <button className={mode === "rim" ? "selected" : ""} onClick={() => setMode("rim")} disabled={rimLocked}>框选篮筐（一次）</button>
         <button className={mode === "ball" ? "selected" : ""} onClick={() => setMode("ball")}>框选篮球</button>
-        <button onClick={() => setZoom(Math.max(1, zoom - 0.25))}>缩小</button>
-        <button onClick={() => setZoom(Math.min(3, zoom + 0.25))}>放大 {Math.round(zoom * 100)}%</button>
       </div>
       <div className="phases">
         <button onClick={() => stepFrames(-5)}>后退 5 帧</button><button onClick={() => stepFrames(-1)}>后退 1 帧</button>
@@ -134,32 +130,24 @@ export default function AnnotationClient() {
         </aside>
         <div
           className="video-shell"
-          onContextMenu={(event) => event.preventDefault()}
           onPointerDown={(event) => {
+            if (event.target instanceof HTMLVideoElement) return;
             event.currentTarget.setPointerCapture(event.pointerId);
-            if (event.button === 2 && zoom > 1) {
-              panStart.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
-              return;
-            }
             if (event.button === 0) setStart(position(event));
           }}
-          onPointerMove={(event) => {
-            if (!panStart.current) return;
-            setPan({ x: panStart.current.panX + event.clientX - panStart.current.x, y: panStart.current.panY + event.clientY - panStart.current.y });
-          }}
           onPointerUp={(event) => {
-            if (panStart.current) { panStart.current = null; return; }
+            if (event.target instanceof HTMLVideoElement) return;
             if (!start) return;
             const end = position(event);
             const box = { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), x2: Math.max(start.x, end.x), y2: Math.max(start.y, end.y) };
             if (box.x2 - box.x < 3 || box.y2 - box.y < 3) return;
-            if (mode === "rim") setRim([box.x, box.y, box.x2, box.y2]);
+            if (mode === "rim" && !rimLocked) setRim([box.x, box.y, box.x2, box.y2]);
             else if (video.current) setBoxes([...boxes, { ...box, phase, time_seconds: Number(video.current.currentTime.toFixed(2)) }]);
             setStart(null);
           }}
-          onPointerCancel={() => { panStart.current = null; setStart(null); }}
+          onPointerCancel={() => setStart(null)}
         >
-          <div className="video" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "top left", cursor: zoom > 1 ? "grab" : "crosshair" }}>
+          <div className="video" style={{ cursor: mode === "rim" || mode === "ball" ? "crosshair" : "default" }}>
           <video ref={video} controls src={videoSource} onTimeUpdate={() => video.current && setCurrentTime(video.current.currentTime)} onLoadedMetadata={() => video.current && setDimensions({ width: video.current.videoWidth, height: video.current.videoHeight })} />
           {showAnnotations && rim && <div className="rim" style={styleFor({ x: rim[0], y: rim[1], x2: rim[2], y2: rim[3] })} />}
           {showAnnotations && allBoxes.map((box, index) => <div className="ball" key={`${box.time_seconds}-${index}`} style={styleFor(box)}><span>{box.phase}</span></div>)}
@@ -168,13 +156,14 @@ export default function AnnotationClient() {
         <aside className="controls-panel">
           <h2>视频与框选</h2>
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
+          <button onClick={() => setRimLocked(true)} disabled={!rim || rimLocked}>{rimLocked ? "篮筐位置已锁定" : "确认并锁定篮筐位置"}</button>
           <button onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
           <button onClick={() => setShowAnnotations(!showAnnotations)} disabled={!rim && !allBoxes.length}>{showAnnotations ? "隐藏全部标记框" : "显示全部标记框"}</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
           <button onClick={save} disabled={!shotEvents.length && !rim && !boxes.length && !completed.length}>下载全部标注 JSON</button>
-          <details><summary>标注说明</summary><p>剪辑只记录结果即可。训练检测时，框一次篮筐，再各框 3 个篮球帧。放大后按住鼠标右键可拖动画面。</p><p>标注文件：{annotationName}</p></details>
+          <details><summary>标注说明</summary><p>剪辑只记录结果即可。篮筐只需框一次，点击确认后会锁定。训练检测时，再各框 3 个篮球帧。</p><p>标注文件：{annotationName}</p></details>
         </aside>
       </section>
     </main>
