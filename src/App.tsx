@@ -527,14 +527,16 @@ export default function App() {
         </aside>
 
         <section className="video-column">
-          <div className="video-toolbar">
-            <button onClick={() => stepFrames(-5)}>−5 帧</button><button onClick={() => stepFrames(-1)}>−1 帧</button>
-            <strong>{formatTime(currentTime)}</strong>
-            <button onClick={() => stepFrames(1)}>+1 帧</button><button onClick={() => stepFrames(5)}>+5 帧</button>
-            <label>倍速<select value={playbackRate} onChange={(event) => setSpeed(Number(event.target.value))}>{speeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
-            <label>FPS<input type="number" min="1" max="240" value={project.source_video.fps} onChange={(event) => dispatch({ type: "set_video", video: { fps: Math.max(1, Number(event.target.value)) } })} /></label>
+          <div className="review-controls-sticky">
+            <div className="video-toolbar">
+              <button onClick={() => stepFrames(-5)}>−5 帧</button><button onClick={() => stepFrames(-1)}>−1 帧</button>
+              <strong>{formatTime(currentTime)}</strong>
+              <button onClick={() => stepFrames(1)}>+1 帧</button><button onClick={() => stepFrames(5)}>+5 帧</button>
+              <label>倍速<select value={playbackRate} onChange={(event) => setSpeed(Number(event.target.value))}>{speeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
+              <label>FPS<input type="number" min="1" max="240" value={project.source_video.fps} onChange={(event) => dispatch({ type: "set_video", video: { fps: Math.max(1, Number(event.target.value)) } })} /></label>
+            </div>
+            {timeline}
           </div>
-          {timeline}
           <div className="video-shell">
             {videoUrl ? <div className="video-stage" style={{ aspectRatio: `${project.source_video.width} / ${project.source_video.height}` }}>
               {/* Local sports footage may be silent and has no known caption source. */}
