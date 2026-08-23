@@ -19,6 +19,11 @@ describe("review keyboard shortcuts", () => {
     expect(resolveReviewShortcut({ key: "ArrowLeft", shiftKey: false, repeat: false, editable: true })).toBeNull();
   });
 
+  it("keeps Space playback available while a highlight range handle has focus", () => {
+    expect(resolveReviewShortcut({ key: " ", shiftKey: false, repeat: false, editable: true, rangeControl: true }))
+      .toEqual({ command: "toggle-playback" });
+  });
+
   it("maps arrows to five-second skips regardless of Shift", () => {
     expect(resolveReviewShortcut({ key: "ArrowLeft", shiftKey: false, repeat: false, editable: false }))
       .toEqual({ command: "seek-seconds", seconds: -5 });

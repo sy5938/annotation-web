@@ -13,13 +13,14 @@ type ShortcutInput = {
   shiftKey: boolean;
   repeat: boolean;
   editable: boolean;
+  rangeControl?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;
   altKey?: boolean;
 };
 
 export function resolveReviewShortcut(input: ShortcutInput): ReviewShortcut | null {
-  if (input.editable) return null;
+  if (input.editable && !(input.rangeControl && input.key === " ")) return null;
 
   let shortcut: ReviewShortcut | null = null;
   const key = input.key.toLowerCase();

@@ -8,6 +8,7 @@ import {
   scoreFor,
   serializeAnnotationProject,
   timelineDurationFor,
+  type AnnotationProject,
   type ShotRecord,
 } from "./annotation-project";
 
@@ -78,7 +79,107 @@ describe("Annotation Project", () => {
     const source = createAnnotationProject("game.mp4");
     const parsed = parseAnnotationProject(JSON.parse(serializeAnnotationProject(source)) as unknown);
     expect(parsed.migratedFromLegacy).toBe(false);
+    expect(parsed.warnings).toEqual([]);
     expect(parsed.project).toEqual(source);
+  });
+
+  it("keeps initial scores in the total and exports the complete v3 project", () => {
+    let source = createAnnotationProject("game.mp4");
+    source = projectReducer(source, { type: "set_previous_score", player: "A", score: 11 });
+    source = projectReducer(source, { type: "set_previous_score", player: "B", score: 8 });
+    source.records = [
+      {
+        id: "made",
+        kind: "shot",
+        player: "A",
+        outcome: "made_2",
+        result_time_seconds: 10,
+        trajectory: [{ id: "rim", phase: "rim", time_seconds: 9.5, box: { x: 1, y: 2, x2: 3, y2: 4 } }],
+      },
+      { id: "missed", kind: "shot", player: "B", outcome: "missed", result_time_seconds: 20, trajectory: [] },
+    ];
+    source.highlight_plans.A.excluded_record_ids = ["made"];
+
+    const exported = JSON.parse(serializeAnnotationProject(source)) as AnnotationProject;
+
+    expect(scoreFor(source, "A")).toBe(13);
+    expect(scoreFor(source, "B")).toBe(8);
+    expect(exported.schema_version).toBe(3);
+    expect(exported.previous_scores).toEqual({ A: 11, B: 8 });
+    expect(exported.records).toEqual(source.records);
+    expect(exported.records[0].kind === "shot" && exported.records[0].trajectory).toHaveLength(1);
+    expect(exported.highlight_plans).toEqual(source.highlight_plans);
+  });
+
+  it("migrates schema v2 with empty highlight plans", () => {
+    const versionTwo = JSON.parse(serializeAnnotationProject(createAnnotationProject("game.mp4"))) as Record<string, unknown>;
+    versionTwo.schema_version = 2;
+    delete versionTwo.highlight_plans;
+
+    const parsed = parseAnnotationProject(versionTwo);
+
+    expect(parsed.migratedFromLegacy).toBe(false);
+    expect(parsed.project.schema_version).toBe(3);
+    expect(parsed.project.highlight_plans).toEqual({
+      all: { excluded_record_ids: [], segment_edits: [] },
+      A: { excluded_record_ids: [], segment_edits: [] },
+      B: { excluded_record_ids: [], segment_edits: [] },
+    });
+  });
+
+  it("keeps annotations when saved highlight intent is stale", () => {
+    const source = createAnnotationProject("game.mp4");
+    source.records.push({ id: "shot-1", kind: "shot", player: "A", result_time_seconds: 10, outcome: "made_2", trajectory: [] });
+    const serialized = JSON.parse(serializeAnnotationProject(source)) as Record<string, unknown>;
+    serialized.highlight_plans = {
+      all: { excluded_record_ids: ["missing"], segment_edits: [] },
+      A: { excluded_record_ids: [], segment_edits: [{ record_ids: ["missing"], start_seconds: 1, end_seconds: 2 }] },
+      B: { excluded_record_ids: [], segment_edits: [] },
+    };
+
+    const parsed = parseAnnotationProject(serialized);
+
+    expect(parsed.project.records).toEqual(source.records);
+    expect(parsed.project.highlight_plans.all.excluded_record_ids).toEqual([]);
+    expect(parsed.project.highlight_plans.A.segment_edits).toEqual([]);
+    expect(parsed.warnings).toHaveLength(1);
+  });
+
+  it("round-trips saved scope choices and valid segment boundaries", () => {
+    const source = createAnnotationProject("game.mp4");
+    source.source_video.duration_seconds = 30;
+    source.records.push({ id: "shot-1", kind: "shot", player: "A", result_time_seconds: 10, outcome: "made_2", trajectory: [] });
+    source.highlight_plans.A = {
+      excluded_record_ids: [],
+      segment_edits: [{ record_ids: ["shot-1"], start_seconds: 3, end_seconds: 14 }],
+    };
+    source.highlight_plans.all.excluded_record_ids = ["shot-1"];
+
+    const parsed = parseAnnotationProject(JSON.parse(serializeAnnotationProject(source)) as unknown);
+
+    expect(parsed.project.highlight_plans).toEqual(source.highlight_plans);
+    expect(parsed.warnings).toEqual([]);
+  });
+
+  it("warns and drops a saved boundary that cuts out its source event", () => {
+    const source = createAnnotationProject("game.mp4");
+    source.source_video.duration_seconds = 30;
+    source.records.push({ id: "shot-1", kind: "shot", player: "A", result_time_seconds: 10, outcome: "made_2", trajectory: [] });
+    const serialized = JSON.parse(serializeAnnotationProject(source)) as Record<string, unknown>;
+    serialized.highlight_plans = {
+      all: { excluded_record_ids: [], segment_edits: [] },
+      A: { excluded_record_ids: [], segment_edits: [{ record_ids: ["shot-1"], start_seconds: 11, end_seconds: 14 }] },
+      B: { excluded_record_ids: [], segment_edits: [] },
+    };
+
+    const parsed = parseAnnotationProject(serialized);
+
+    expect(parsed.project.highlight_plans.A.segment_edits).toEqual([]);
+    expect(parsed.warnings).toHaveLength(1);
+  });
+
+  it("rejects an unsupported future schema instead of treating it as legacy", () => {
+    expect(() => parseAnnotationProject({ schema_version: 99 })).toThrow("不支持的工程版本：99");
   });
 
   it("imports the repository's original annotation fixture", () => {
