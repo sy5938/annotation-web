@@ -107,13 +107,13 @@ describe("Annotation Project", () => {
     expect(timelineDurationFor(imported)).toBeGreaterThan(0);
   });
 
-  it("undoes only the last added event record", () => {
+  it("replaces records when navigating record history", () => {
     const first: ShotRecord = { id: "first", kind: "shot", player: "A", result_time_seconds: 1, outcome: "made_2", trajectory: [] };
     const second: ShotRecord = { id: "second", kind: "shot", player: "B", result_time_seconds: 2, outcome: "missed", trajectory: [] };
     let project = projectReducer(createAnnotationProject("game.mp4"), { type: "add_record", record: first });
     project = projectReducer(project, { type: "add_record", record: second });
 
-    project = projectReducer(project, { type: "undo_last_record" });
+    project = projectReducer(project, { type: "replace_records", records: [first] });
 
     expect(project.records).toEqual([first]);
   });

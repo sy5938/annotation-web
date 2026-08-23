@@ -5,6 +5,7 @@ export type ReviewShortcut =
   | { command: "change-speed"; direction: number }
   | { command: "record-event"; player: "A" | "B"; event: "made_2" | "made_3" | "defense" | "missed" }
   | { command: "undo-record" }
+  | { command: "redo-record" }
   | { command: "consume" };
 
 type ShortcutInput = {
@@ -40,7 +41,9 @@ export function resolveReviewShortcut(input: ShortcutInput): ReviewShortcut | nu
     if (key === "d") shortcut = { command: "record-event", player: "B", event: "defense" };
     if (key === "f") shortcut = { command: "record-event", player: "B", event: "missed" };
   }
-  if (commandModifier && key === "z") shortcut = { command: "undo-record" };
+  if (commandModifier && key === "z") {
+    shortcut = { command: input.shiftKey || (input.metaKey && input.ctrlKey) ? "redo-record" : "undo-record" };
+  }
 
   if (!shortcut) return null;
   return input.repeat ? { command: "consume" } : shortcut;

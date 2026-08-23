@@ -48,7 +48,16 @@ describe("review keyboard shortcuts", () => {
   it("routes Command+Z and Ctrl+Z to undo without recording a shot", () => {
     expect(resolveReviewShortcut({ key: "z", shiftKey: false, repeat: false, editable: false, metaKey: true }))
       .toEqual({ command: "undo-record" });
-    expect(resolveReviewShortcut({ key: "Z", shiftKey: true, repeat: false, editable: false, ctrlKey: true }))
+    expect(resolveReviewShortcut({ key: "Z", shiftKey: false, repeat: false, editable: false, ctrlKey: true }))
       .toEqual({ command: "undo-record" });
+  });
+
+  it("routes Command/Ctrl+Shift+Z to redo", () => {
+    expect(resolveReviewShortcut({ key: "z", shiftKey: true, repeat: false, editable: false, metaKey: true }))
+      .toEqual({ command: "redo-record" });
+    expect(resolveReviewShortcut({ key: "z", shiftKey: true, repeat: false, editable: false, ctrlKey: true }))
+      .toEqual({ command: "redo-record" });
+    expect(resolveReviewShortcut({ key: "z", shiftKey: false, repeat: false, editable: false, ctrlKey: true, metaKey: true }))
+      .toEqual({ command: "redo-record" });
   });
 });

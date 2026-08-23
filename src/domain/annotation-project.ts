@@ -56,7 +56,7 @@ export type ProjectAction =
   | { type: "update_shot"; id: string; patch: Partial<Pick<ShotRecord, "player" | "outcome" | "result_time_seconds">> }
   | { type: "update_defense"; id: string; patch: Partial<Pick<DefenseRecord, "player" | "time_seconds">> }
   | { type: "delete_record"; id: string }
-  | { type: "undo_last_record" }
+  | { type: "replace_records"; records: AnnotationRecord[] }
   | { type: "add_keyframe"; shotId: string; keyframe: Keyframe }
   | { type: "update_keyframe"; shotId: string; keyframeId: string; patch: Partial<Pick<Keyframe, "time_seconds" | "phase" | "box">> }
   | { type: "delete_keyframe"; shotId: string; keyframeId: string };
@@ -122,8 +122,8 @@ export function projectReducer(project: AnnotationProject, action: ProjectAction
       );
     case "delete_record":
       return { ...project, records: project.records.filter((record) => record.id !== action.id) };
-    case "undo_last_record":
-      return { ...project, records: project.records.slice(0, -1) };
+    case "replace_records":
+      return { ...project, records: action.records };
     case "add_keyframe":
       return updateShot(project, action.shotId, (shot) => ({
         ...shot,

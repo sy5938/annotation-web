@@ -18,7 +18,15 @@ import {
 } from "./domain/annotation-project";
 import { buildPreview } from "./domain/preview";
 import { visibleKeyframesAtTime } from "./domain/keyframe-visibility";
-import { findMatchingVideoFile, selectProjectFile } from "./domain/project-folder";
+import { findMatchingVideoFile, listProjectFiles } from "./domain/project-folder";
+import {
+  commitRecordChange,
+  emptyRecordHistory,
+  redoRecordChange,
+  undoRecordChange,
+  type RecordChange,
+  type RecordHistory,
+} from "./domain/record-history";
 import { resolveReviewShortcut } from "./domain/review-shortcuts";
 import {
   formatTime,
@@ -75,6 +83,10 @@ export default function App() {
   const [replaceKeyframeId, setReplaceKeyframeId] = useState<string | null>(null);
   const [drawStart, setDrawStart] = useState<Point | null>(null);
   const [draftRect, setDraftRect] = useState<ReturnType<typeof rectFromPoints> | null>(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState<File[]>([]);
+  const [workspaceProjects, setWorkspaceProjects] = useState<File[]>([]);
+  const [workspaceProjectPath, setWorkspaceProjectPath] = useState("");
+  const [recordHistory, setRecordHistory] = useState<RecordHistory>(emptyRecordHistory);
   const [notice, setNotice] = useState("打开视频，或导入已有标定工程继续工作。");
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -126,7 +138,7 @@ export default function App() {
       : null;
     if (folderFiles && !bundledVideo) {
       const expected = parsed.project.source_video.name || file.name.replace(/-annotation-project\.json$/i, "");
-      throw new Error(`已找到工程，但同目录没有找到对应视频“${expected}”。`);
+      throw new Error(`已找到工程，但工作文件夹中没有找到对应视频“${expected}”。`);
     }
 
     let importedProject = parsed.project;
@@ -145,6 +157,7 @@ export default function App() {
       }
     }
     dispatch({ type: "replace", project: importedProject });
+    setRecordHistory(emptyRecordHistory());
     const first = [...importedProject.records].sort((a, b) => recordTime(a) - recordTime(b))[0];
     const firstTime = first ? recordTime(first) : 0;
     setSelectedRecordId(first?.id ?? null);
@@ -169,6 +182,9 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
+      setWorkspaceFiles([]);
+      setWorkspaceProjects([]);
+      setWorkspaceProjectPath("");
       await loadProjectFile(file);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "工程导入失败。");
@@ -179,13 +195,36 @@ export default function App() {
   async function importProjectFolder(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
+    setWorkspaceFiles(files);
+    setWorkspaceProjects([]);
+    setWorkspaceProjectPath("");
     try {
-      const projectFile = selectProjectFile(files);
-      await loadProjectFile(projectFile, files);
+      const projects = listProjectFiles(files);
+      if (!projects.length) throw new Error("所选工作文件夹中没有找到标定工程 JSON。");
+      setWorkspaceProjects(projects);
+      if (projects.length === 1) {
+        setWorkspaceProjectPath(folderFilePath(projects[0]));
+        await loadProjectFile(projects[0], files);
+      } else {
+        setWorkspaceProjectPath("");
+        setNotice(`工作文件夹中找到 ${projects.length} 个工程，请选择要打开的工程。`);
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "工程文件夹导入失败。");
     }
     event.target.value = "";
+  }
+
+  async function selectWorkspaceProject(event: ChangeEvent<HTMLSelectElement>) {
+    const path = event.target.value;
+    setWorkspaceProjectPath(path);
+    const projectFile = workspaceProjects.find((file) => folderFilePath(file) === path);
+    if (!projectFile) return;
+    try {
+      await loadProjectFile(projectFile, workspaceFiles);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "工作文件夹中的工程打开失败。");
+    }
   }
 
   function exportProject() {
@@ -207,6 +246,7 @@ export default function App() {
       trajectory: [],
     };
     dispatch({ type: "add_record", record });
+    rememberRecordChange({ kind: "add", record, index: project.records.length });
     setSelectedRecordId(record.id);
     setSelectedKeyframeId(null);
     setTrajectoryOpen(false);
@@ -220,6 +260,7 @@ export default function App() {
       time_seconds: roundTime(currentTime),
     };
     dispatch({ type: "add_record", record });
+    rememberRecordChange({ kind: "add", record, index: project.records.length });
     setSelectedRecordId(record.id);
     setSelectedKeyframeId(null);
     setTrajectoryOpen(false);
@@ -378,22 +419,48 @@ export default function App() {
 
   function deleteSelectedRecord() {
     if (!selectedRecord) return;
+    const index = project.records.findIndex((record) => record.id === selectedRecord.id);
     dispatch({ type: "delete_record", id: selectedRecord.id });
+    rememberRecordChange({ kind: "delete", record: selectedRecord, index });
     setSelectedRecordId(null);
     setSelectedKeyframeId(null);
     setTrajectoryOpen(false);
   }
 
-  function undoLastRecord() {
-    const lastRecord = project.records.at(-1);
-    if (!lastRecord) return;
-    dispatch({ type: "undo_last_record" });
-    if (selectedRecordId === lastRecord.id) {
+  function rememberRecordChange(change: RecordChange) {
+    setRecordHistory((history) => commitRecordChange(history, change));
+  }
+
+  function undoRecord() {
+    const result = undoRecordChange(project.records, recordHistory);
+    if (!result) return;
+    dispatch({ type: "replace_records", records: result.records });
+    setRecordHistory(result.history);
+    if (result.change.kind === "delete") {
+      setSelectedRecordId(result.change.record.id);
+      seek(recordTime(result.change.record));
+    } else if (selectedRecordId === result.change.record.id) {
       setSelectedRecordId(null);
       setSelectedKeyframeId(null);
       setTrajectoryOpen(false);
     }
-    setNotice("已撤销上一个事件记录。");
+    setNotice(result.change.kind === "add" ? "已撤销新增记录。" : "已恢复刚删除的记录。");
+  }
+
+  function redoRecord() {
+    const result = redoRecordChange(project.records, recordHistory);
+    if (!result) return;
+    dispatch({ type: "replace_records", records: result.records });
+    setRecordHistory(result.history);
+    if (result.change.kind === "add") {
+      setSelectedRecordId(result.change.record.id);
+      seek(recordTime(result.change.record));
+    } else if (selectedRecordId === result.change.record.id) {
+      setSelectedRecordId(null);
+      setSelectedKeyframeId(null);
+      setTrajectoryOpen(false);
+    }
+    setNotice(result.change.kind === "add" ? "已重做新增记录。" : "已重做删除记录。");
   }
 
   function timelineTime(clientX: number): number {
@@ -472,7 +539,8 @@ export default function App() {
         if (shortcut.event === "defense") addDefense(shortcut.player);
         else addShot(shortcut.player, shortcut.event);
       }
-      if (shortcut.command === "undo-record") undoLastRecord();
+      if (shortcut.command === "undo-record") undoRecord();
+      if (shortcut.command === "redo-record") redoRecord();
     }
 
     function onKeyUp(event: KeyboardEvent) {
@@ -561,11 +629,15 @@ export default function App() {
 
       <div className="project-bar">
         <label className="file-button primary">打开视频<input type="file" accept="video/*" onChange={openVideo} /></label>
-        <label className="file-button bundle-import">一键导入工程+视频<input type="file" multiple onChange={importProjectFolder} ref={(input) => { if (input) input.webkitdirectory = true; }} /></label>
+        <label className="file-button bundle-import">打开工作文件夹<input type="file" multiple onChange={importProjectFolder} ref={(input) => { if (input) input.webkitdirectory = true; }} /></label>
         <label className="file-button">仅导入工程<input type="file" accept="application/json,.json" onChange={importProject} /></label>
         <button onClick={exportProject}>导出工程</button>
         <span className="project-name">{project.source_video.name || "尚未选择视频"}</span>
         <span className="notice">{notice}</span>
+        {workspaceProjects.length > 1 && <div className="workspace-project-picker">
+          <label>选择工程<select value={workspaceProjectPath} onChange={selectWorkspaceProject}><option value="">请选择…</option>{workspaceProjects.map((file) => <option value={folderFilePath(file)} key={folderFilePath(file)}>{folderFilePath(file)}</option>)}</select></label>
+          <span>{workspaceProjects.length} 个工程 · 自动匹配对应视频</span>
+        </div>}
       </div>
 
       <section className="workspace">
@@ -594,7 +666,7 @@ export default function App() {
             </button>)}
             {!records.length && <p className="empty-state">播放到结果画面后，从上方快速记录第一球。</p>}
           </div>
-          <button className="undo-record" onClick={undoLastRecord} disabled={!project.records.length}>撤销上一个记录 <span>⌘Z</span></button>
+          <div className="record-history-actions"><button onClick={undoRecord} disabled={!recordHistory.past.length}>撤销 <span>⌘Z</span></button><button onClick={redoRecord} disabled={!recordHistory.future.length}>重做 <span>⇧⌘Z</span></button></div>
         </aside>
 
         <section className="video-column">
@@ -628,7 +700,7 @@ export default function App() {
           <div className="overlay-controls" aria-label="画面标记显示设置">
             <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>
-          <div className="keyboard-hint"><span>{project.players.A || "甲"}：Z 2分 · X 3分 · C 防守 · V 未进</span><span>{project.players.B || "乙"}：A 2分 · S 3分 · D 防守 · F 未进</span><span>⌘/Ctrl + Z 撤销记录</span><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
+          <div className="keyboard-hint"><span>{project.players.A || "甲"}：Z 2分 · X 3分 · C 防守 · V 未进</span><span>{project.players.B || "乙"}：A 2分 · S 3分 · D 防守 · F 未进</span><span>⌘/Ctrl + Z 撤销 · Shift + ⌘/Ctrl + Z 重做</span><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
         </section>
 
         <aside className="panel inspector-panel">
@@ -669,6 +741,10 @@ export default function App() {
 
     </main>
   );
+}
+
+function folderFilePath(file: File): string {
+  return file.webkitRelativePath || file.name;
 }
 
 function roundTime(value: number): number {

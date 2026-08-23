@@ -40,6 +40,10 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
 .project-name, .notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-name { padding-left: 8px; color: var(--ink); font-size: 12px; font-weight: 750; }
 .notice { color: var(--muted); font-size: 11px; text-align: right; }
+.workspace-project-picker { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid #b8d9d4; border-radius: 9px; background: #eef8f6; }
+.workspace-project-picker label { display: flex; flex: 1; align-items: center; gap: 8px; color: var(--teal); font-size: 10px; font-weight: 750; }
+.workspace-project-picker select { flex: 1; min-width: 0; height: 34px; border: 1px solid #9fcac4; border-radius: 7px; background: #fff; }
+.workspace-project-picker span { color: #4d706c; font-size: 9px; }
 
 .workspace { display: grid; grid-template-columns: 270px minmax(480px, 1fr) 285px; align-items: start; gap: 12px; margin-top: 12px; }
 .panel { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: 0 5px 20px #2530440a; }
@@ -67,8 +71,9 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
 .record small { color: var(--muted); font: 10px ui-monospace, monospace; }
 .record em { color: var(--teal); font-size: 9px; font-style: normal; }
 .empty-state { margin: 0; padding: 19px 10px; border: 1px dashed #d7dde5; border-radius: 8px; color: #8993a2; font-size: 11px; line-height: 1.5; text-align: center; }
-.undo-record { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 9px; font-size: 10px; }
-.undo-record span { color: var(--muted); font: 9px ui-monospace, monospace; }
+.record-history-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+.record-history-actions button { display: flex; align-items: center; justify-content: space-between; font-size: 10px; }
+.record-history-actions span { color: var(--muted); font: 9px ui-monospace, monospace; }
 
 .video-column { min-width: 0; }
 .review-controls-sticky { position: sticky; z-index: 10; top: 12px; border-radius: 11px 11px 0 0; background: var(--paper); box-shadow: 0 8px 18px #1118271a; }
@@ -190,6 +195,7 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
   .app-header { align-items: stretch; flex-direction: column; }
   .project-bar { grid-template-columns: 1fr 1fr; }
   .project-name, .notice { grid-column: 1 / -1; text-align: left; }
+  .workspace-project-picker { align-items: stretch; flex-direction: column; }
   .workspace { grid-template-columns: 1fr; }
   .video-column { grid-row: 1; }
   .records-panel { position: static; grid-row: 2; max-height: none; overflow: visible; }
