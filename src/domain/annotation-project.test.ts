@@ -8,6 +8,7 @@ import {
   scoreFor,
   serializeAnnotationProject,
   timelineDurationFor,
+  type AnnotationProject,
   type ShotRecord,
 } from "./annotation-project";
 
@@ -80,6 +81,34 @@ describe("Annotation Project", () => {
     expect(parsed.migratedFromLegacy).toBe(false);
     expect(parsed.warnings).toEqual([]);
     expect(parsed.project).toEqual(source);
+  });
+
+  it("keeps initial scores in the total and exports the complete v3 project", () => {
+    let source = createAnnotationProject("game.mp4");
+    source = projectReducer(source, { type: "set_previous_score", player: "A", score: 11 });
+    source = projectReducer(source, { type: "set_previous_score", player: "B", score: 8 });
+    source.records = [
+      {
+        id: "made",
+        kind: "shot",
+        player: "A",
+        outcome: "made_2",
+        result_time_seconds: 10,
+        trajectory: [{ id: "rim", phase: "rim", time_seconds: 9.5, box: { x: 1, y: 2, x2: 3, y2: 4 } }],
+      },
+      { id: "missed", kind: "shot", player: "B", outcome: "missed", result_time_seconds: 20, trajectory: [] },
+    ];
+    source.highlight_plans.A.excluded_record_ids = ["made"];
+
+    const exported = JSON.parse(serializeAnnotationProject(source)) as AnnotationProject;
+
+    expect(scoreFor(source, "A")).toBe(13);
+    expect(scoreFor(source, "B")).toBe(8);
+    expect(exported.schema_version).toBe(3);
+    expect(exported.previous_scores).toEqual({ A: 11, B: 8 });
+    expect(exported.records).toEqual(source.records);
+    expect(exported.records[0].kind === "shot" && exported.records[0].trajectory).toHaveLength(1);
+    expect(exported.highlight_plans).toEqual(source.highlight_plans);
   });
 
   it("migrates schema v2 with empty highlight plans", () => {

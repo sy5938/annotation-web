@@ -14,9 +14,10 @@ function keyframe(id: string, time: number): Keyframe {
 describe("keyframe visibility", () => {
   const keyframes = [keyframe("selected", 10), keyframe("nearby", 10.01), keyframe("far", 20)];
 
-  it("shows only the selected keyframe when one is selected", () => {
+  it("shows only the selected keyframe at its timestamp", () => {
     expect(visibleKeyframesAtTime(keyframes, "selected", 10.01, 30).map((frame) => frame.id))
       .toEqual(["selected"]);
+    expect(visibleKeyframesAtTime(keyframes, "selected", 20, 30)).toEqual([]);
   });
 
   it("shows nearby keyframes when none is selected", () => {

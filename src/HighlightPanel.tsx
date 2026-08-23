@@ -1,9 +1,7 @@
-import type { CSSProperties } from "react";
 import type { AnnotationProject } from "./domain/annotation-project";
 import type {
   HighlightPlanCommand,
   HighlightScope,
-  HighlightSegment,
   HighlightView,
 } from "./domain/highlight-plan";
 import { formatTime } from "./domain/video-geometry";
@@ -72,7 +70,10 @@ type HighlightOverviewTimelineProps = {
   view: HighlightView;
   segmentIndex: number;
   currentTime: number;
+  previewing: boolean;
+  onCommand: (command: HighlightPlanCommand) => void;
   onSelect: (segmentIndex: number) => void;
+  onPlay: (segmentIndex: number) => void;
 };
 
 export function HighlightOverviewTimeline({
@@ -80,22 +81,46 @@ export function HighlightOverviewTimeline({
   view,
   segmentIndex,
   currentTime,
+  previewing,
+  onCommand,
   onSelect,
+  onPlay,
 }: HighlightOverviewTimelineProps) {
   const duration = project.source_video.duration_seconds;
   const firstSegment = view.segments[0];
   const lastSegment = view.segments[view.segments.length - 1];
+  const selectedSegment = view.segments[segmentIndex];
+  const selectedEvents = selectedSegment
+    ? view.events.filter((event) => selectedSegment.record_ids.includes(event.record_id))
+    : [];
+  const earliestEvent = Math.min(...selectedEvents.map((event) => event.time_seconds));
+  const latestEvent = Math.max(...selectedEvents.map((event) => event.time_seconds));
   const position = (time: number) => duration > 0 ? Math.min(100, Math.max(0, (time / duration) * 100)) : 0;
+  const setBoundary = (start: number, end: number) => {
+    if (!selectedSegment) return;
+    onCommand({
+      type: "set-segment-boundaries",
+      record_ids: selectedSegment.record_ids,
+      start_seconds: start,
+      end_seconds: end,
+    });
+  };
 
   return (
     <section className="highlight-overview-panel" aria-label="高光整体时间轴">
       <div className="highlight-overview-heading">
-        <div><strong>高光整体视图</strong><span>完整视频中的所有保留区间和事件点</span></div>
+        <div><strong>高光整体视图</strong><span>{selectedSegment ? `片段 ${segmentIndex + 1}/${view.segments.length} · ${formatTime(selectedSegment.start_seconds)} – ${formatTime(selectedSegment.end_seconds)} · 直接拖动时间轴手柄` : "完整视频中的所有保留区间和事件点"}</span></div>
         <div className="highlight-overview-summary">
           <span>分布 <strong>{firstSegment && lastSegment ? `${formatTime(firstSegment.start_seconds)} – ${formatTime(lastSegment.end_seconds)}` : "—"}</strong></span>
           <span>保留 <strong>{formatTime(view.total_seconds)}</strong></span>
           <span><strong>{view.segments.length}</strong> 段</span>
         </div>
+        {selectedSegment && <div className="highlight-segment-nav">
+          <button onClick={() => onSelect(segmentIndex - 1)} disabled={segmentIndex === 0}>上一段</button>
+          <button className="primary-action" onClick={() => onPlay(segmentIndex)}>{previewing ? "重新播放" : "播放本段"}</button>
+          <button onClick={() => onSelect(segmentIndex + 1)} disabled={segmentIndex === view.segments.length - 1}>下一段</button>
+          <button onClick={() => onCommand({ type: "reset-segment", record_ids: selectedSegment.record_ids })}>恢复前五后三</button>
+        </div>}
       </div>
       <div className={duration > 0 ? "highlight-overview-track" : "highlight-overview-track disabled"}>
         {view.segments.map((segment, index) => <button
@@ -117,105 +142,30 @@ export function HighlightOverviewTimeline({
           ><span>{event.kind === "made_2" ? "+2" : event.kind === "made_3" ? "+3" : "D"}</span></button>;
         })}
         {duration > 0 && <div className="highlight-overview-playhead" style={{ left: `${position(currentTime)}%` }} />}
+        {selectedSegment && <>
+          <input
+            className="highlight-overview-range start"
+            aria-label="高光开始时间"
+            type="range"
+            min="0"
+            max={duration}
+            step="0.1"
+            value={selectedSegment.start_seconds}
+            onChange={(event) => setBoundary(Math.min(Number(event.target.value), earliestEvent), selectedSegment.end_seconds)}
+          />
+          <input
+            className="highlight-overview-range end"
+            aria-label="高光结束时间"
+            type="range"
+            min="0"
+            max={duration}
+            step="0.1"
+            value={selectedSegment.end_seconds}
+            onChange={(event) => setBoundary(selectedSegment.start_seconds, Math.max(Number(event.target.value), latestEvent))}
+          />
+        </>}
       </div>
       <div className="highlight-overview-scale"><span>0:00</span><span>{formatTime(duration / 2)}</span><span>{formatTime(duration)}</span></div>
     </section>
   );
-}
-
-type HighlightTrimBarProps = {
-  project: AnnotationProject;
-  view: HighlightView;
-  segmentIndex: number;
-  currentTime: number;
-  previewing: boolean;
-  onCommand: (command: HighlightPlanCommand) => void;
-  onSelect: (segmentIndex: number) => void;
-  onPlay: (segmentIndex: number) => void;
-};
-
-export function HighlightTrimBar({
-  project,
-  view,
-  segmentIndex,
-  currentTime,
-  previewing,
-  onCommand,
-  onSelect,
-  onPlay,
-}: HighlightTrimBarProps) {
-  const segment = view.segments[segmentIndex];
-  if (!segment) {
-    return <section className="highlight-trim-panel"><p className="empty-state">当前范围没有可预览的高光片段。</p></section>;
-  }
-
-  const segmentEvents = view.events.filter((event) => segment.record_ids.includes(event.record_id));
-  const earliestEvent = Math.min(...segmentEvents.map((event) => event.time_seconds));
-  const latestEvent = Math.max(...segmentEvents.map((event) => event.time_seconds));
-  const bounds = highlightTrimBounds(segment, project.source_video.duration_seconds);
-  const range = Math.max(0.1, bounds.end - bounds.start);
-  const startPosition = ((segment.start_seconds - bounds.start) / range) * 100;
-  const endPosition = ((segment.end_seconds - bounds.start) / range) * 100;
-  const playheadPosition = ((currentTime - bounds.start) / range) * 100;
-  const setBoundary = (start: number, end: number) => onCommand({
-    type: "set-segment-boundaries",
-    record_ids: segment.record_ids,
-    start_seconds: start,
-    end_seconds: end,
-  });
-
-  return (
-    <section className="highlight-trim-panel" aria-label="当前高光片段修剪">
-      <div className="highlight-trim-heading">
-        <div>
-          <strong>高光片段 {segmentIndex + 1} / {view.segments.length}</strong>
-          <span>{formatTime(segment.start_seconds)} – {formatTime(segment.end_seconds)}</span>
-        </div>
-        <div className="highlight-segment-nav">
-          <button onClick={() => onSelect(segmentIndex - 1)} disabled={segmentIndex === 0}>上一段</button>
-          <button className="primary-action" onClick={() => onPlay(segmentIndex)}>{previewing ? "重新播放" : "播放本段"}</button>
-          <button onClick={() => onSelect(segmentIndex + 1)} disabled={segmentIndex === view.segments.length - 1}>下一段</button>
-          <button onClick={() => onCommand({ type: "reset-segment", record_ids: segment.record_ids })}>恢复前五后三</button>
-        </div>
-      </div>
-
-      <div className="highlight-current-events">
-        {segmentEvents.map((event) => <span key={event.record_id}>{project.players[event.player] || event.player} · {eventLabels[event.kind]} · {formatTime(event.time_seconds)}</span>)}
-      </div>
-
-      <div className="highlight-trim-track" style={{ "--trim-start": `${startPosition}%`, "--trim-end": `${endPosition}%` } as CSSProperties}>
-        <div className="highlight-trim-selection" />
-        {currentTime >= bounds.start && currentTime <= bounds.end && <div className="highlight-trim-playhead" style={{ left: `${playheadPosition}%` }} />}
-        {segmentEvents.map((event) => <span className="highlight-event-tick" style={{ left: `${((event.time_seconds - bounds.start) / range) * 100}%` }} key={event.record_id} />)}
-        <input
-          className="highlight-trim-range start"
-          aria-label="高光开始时间"
-          type="range"
-          min={bounds.start}
-          max={bounds.end}
-          step="0.1"
-          value={segment.start_seconds}
-          onChange={(event) => setBoundary(Math.min(Number(event.target.value), earliestEvent), segment.end_seconds)}
-        />
-        <input
-          className="highlight-trim-range end"
-          aria-label="高光结束时间"
-          type="range"
-          min={bounds.start}
-          max={bounds.end}
-          step="0.1"
-          value={segment.end_seconds}
-          onChange={(event) => setBoundary(segment.start_seconds, Math.max(Number(event.target.value), latestEvent))}
-        />
-      </div>
-      <div className="highlight-trim-scale"><span>{formatTime(bounds.start)}</span><span>拖动左、右手柄调整当前片段</span><span>{formatTime(bounds.end)}</span></div>
-    </section>
-  );
-}
-
-export function highlightTrimBounds(segment: HighlightSegment, duration: number) {
-  return {
-    start: Math.max(0, Math.min(segment.start_seconds, segment.default_start_seconds - 5)),
-    end: Math.min(duration, Math.max(segment.end_seconds, segment.default_end_seconds + 5)),
-  };
 }

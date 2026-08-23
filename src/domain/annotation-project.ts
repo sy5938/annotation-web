@@ -113,7 +113,13 @@ export function projectReducer(project: AnnotationProject, action: ProjectAction
     case "set_player_name":
       return { ...project, players: { ...project.players, [action.player]: action.name } };
     case "set_previous_score":
-      return { ...project, previous_scores: { ...project.previous_scores, [action.player]: Math.max(0, action.score) } };
+      return {
+        ...project,
+        previous_scores: {
+          ...project.previous_scores,
+          [action.player]: Number.isFinite(action.score) ? Math.max(0, Math.floor(action.score)) : 0,
+        },
+      };
     case "add_record":
       return { ...project, records: [...project.records, action.record] };
     case "update_shot":

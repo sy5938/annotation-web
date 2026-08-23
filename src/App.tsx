@@ -1,5 +1,5 @@
 import { ChangeEvent, PointerEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { HighlightModeControls, HighlightOverviewTimeline, HighlightTrimBar } from "./HighlightPanel";
+import { HighlightModeControls, HighlightOverviewTimeline } from "./HighlightPanel";
 import {
   createAnnotationProject,
   mergeOpenedVideo,
@@ -775,8 +775,9 @@ export default function App() {
           />}
           {reviewMode === "annotation" && <><div className="scoreboard">
             {(["A", "B"] as PlayerId[]).map((player) => <div key={player}>
-              <input aria-label={`${player} 球员名称`} value={project.players[player]} onChange={(event) => dispatch({ type: "set_player_name", player, name: event.target.value })} />
-              <strong>{scoreFor(project, player)}</strong>
+              <input className="player-name" aria-label={`${player} 球员名称`} value={project.players[player]} onChange={(event) => dispatch({ type: "set_player_name", player, name: event.target.value })} />
+              <label className="initial-score"><span>初始比分</span><input aria-label={`${project.players[player] || player} 初始比分`} type="number" min="0" step="1" value={project.previous_scores[player]} onChange={(event) => dispatch({ type: "set_previous_score", player, score: Number(event.target.value) })} /></label>
+              <div className="total-score"><span>总比分</span><strong>{scoreFor(project, player)}</strong></div>
             </div>)}
           </div>
           <div className="quick-actions">
@@ -819,13 +820,6 @@ export default function App() {
             </div>
             {reviewMode === "annotation" ? timeline : <>
               <HighlightOverviewTimeline
-                project={project}
-                view={highlightView}
-                segmentIndex={highlightPlayback.segmentIndex}
-                currentTime={currentTime}
-                onSelect={selectHighlightSegment}
-              />
-              <HighlightTrimBar
                 project={project}
                 view={highlightView}
                 segmentIndex={highlightPlayback.segmentIndex}

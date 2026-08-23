@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { HighlightModeControls, HighlightOverviewTimeline, HighlightTrimBar, highlightTrimBounds } from "./HighlightPanel";
+import { HighlightModeControls, HighlightOverviewTimeline } from "./HighlightPanel";
 import { createAnnotationProject } from "./domain/annotation-project";
 import { buildHighlightView } from "./domain/highlight-plan";
 
@@ -35,10 +35,10 @@ describe("highlight workspace controls", () => {
     expect(html).toContain("连续预览");
   });
 
-  it("renders one local dual-handle editor for the selected segment", () => {
+  it("shows all highlight ranges, event markers, and selected-segment handles in one overview", () => {
     const project = highlightedProject();
     const view = buildHighlightView(project, "A");
-    const html = renderToStaticMarkup(<HighlightTrimBar
+    const html = renderToStaticMarkup(<HighlightOverviewTimeline
       project={project}
       view={view}
       segmentIndex={0}
@@ -49,36 +49,11 @@ describe("highlight workspace controls", () => {
       onPlay={vi.fn()}
     />);
 
-    expect(html).toContain("高光片段 1 / 1");
-    expect(html).toContain("拖动左、右手柄调整当前片段");
-    expect(html.match(/type="range"/g)).toHaveLength(2);
-  });
-
-  it("shows all highlight ranges and event markers on the full-video overview", () => {
-    const project = highlightedProject();
-    const view = buildHighlightView(project, "A");
-    const html = renderToStaticMarkup(<HighlightOverviewTimeline
-      project={project}
-      view={view}
-      segmentIndex={0}
-      currentTime={10}
-      onSelect={vi.fn()}
-    />);
-
     expect(html).toContain("高光整体视图");
-    expect(html).toContain("完整视频中的所有保留区间和事件点");
+    expect(html).toContain("片段 1/1");
     expect(html).toContain("选择高光片段 1");
     expect(html).toContain(">+2<");
     expect(html).toContain(">D<");
-  });
-
-  it("limits the editing scale to five seconds around the default clip", () => {
-    expect(highlightTrimBounds({
-      record_ids: ["made"],
-      start_seconds: 5,
-      end_seconds: 13,
-      default_start_seconds: 5,
-      default_end_seconds: 13,
-    }, 40)).toEqual({ start: 0, end: 18 });
+    expect(html.match(/type="range"/g)).toHaveLength(2);
   });
 });
