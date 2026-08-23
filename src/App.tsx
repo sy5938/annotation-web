@@ -273,6 +273,13 @@ export default function App() {
     seek(frameStep(video.currentTime, frames, project.source_video.fps, video.duration || project.source_video.duration_seconds));
   }
 
+  function seekSeconds(seconds: number) {
+    const video = videoRef.current;
+    if (!video) return;
+    video.pause();
+    seek(Math.max(0, Math.min(video.duration || project.source_video.duration_seconds, video.currentTime + seconds)));
+  }
+
   function seek(time: number) {
     const video = videoRef.current;
     if (video) video.currentTime = time;
@@ -532,7 +539,7 @@ export default function App() {
       if (!shortcut) return;
       event.preventDefault();
       if (shortcut.command === "toggle-playback") togglePlayback();
-      if (shortcut.command === "step-frames") stepFrames(shortcut.frames);
+      if (shortcut.command === "seek-seconds") seekSeconds(shortcut.seconds);
       if (shortcut.command === "navigate-keyframe") navigateKeyframe(shortcut.direction);
       if (shortcut.command === "change-speed") changeSpeed(shortcut.direction);
       if (shortcut.command === "record-event") {
@@ -620,7 +627,7 @@ export default function App() {
     <main>
       <header className="app-header">
         <div>
-          <p className="eyebrow">COURTSIDE LABEL · LOCAL</p>
+          <p className="eyebrow">COURTSIDE LABEL · LOCAL · V0.1</p>
           <h1>篮球视频标定台</h1>
           <p className="intro">工程、视频与标注只在本机处理。用时间轴回看投篮，并直接覆盖需要调整的关键帧。</p>
         </div>
@@ -700,7 +707,14 @@ export default function App() {
           <div className="overlay-controls" aria-label="画面标记显示设置">
             <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>
-          <div className="keyboard-hint"><span>{project.players.A || "甲"}：Z 2分 · X 3分 · C 防守 · V 未进</span><span>{project.players.B || "乙"}：A 2分 · S 3分 · D 防守 · F 未进</span><span>⌘/Ctrl + Z 撤销 · Shift + ⌘/Ctrl + Z 重做</span><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
+          <details className="shortcut-guide">
+            <summary><span>快捷键说明</span><small>忘记按键时在这里查看</small></summary>
+            <div className="shortcut-guide-content">
+              <section><strong>快速记录</strong><p><b>{project.players.A || "甲"}</b><span><kbd>Z</kbd> 2 分 · <kbd>X</kbd> 3 分 · <kbd>C</kbd> 好防守 · <kbd>V</kbd> 未进</span></p><p><b>{project.players.B || "乙"}</b><span><kbd>A</kbd> 2 分 · <kbd>S</kbd> 3 分 · <kbd>D</kbd> 好防守 · <kbd>F</kbd> 未进</span></p></section>
+              <section><strong>播放与定位</strong><p><span><kbd>空格</kbd> 播放/暂停 · <kbd>←</kbd> 后退 5 秒 · <kbd>→</kbd> 前进 5 秒</span></p><p><span>精确逐帧请使用视频上方的 −5、−1、+1、+5 帧按钮。</span></p></section>
+              <section><strong>复核操作</strong><p><span><kbd>[</kbd> / <kbd>]</kbd> 切换关键帧 · <kbd>−</kbd> / <kbd>+</kbd> 调整倍速</span></p><p><span><kbd>⌘/Ctrl + Z</kbd> 撤销 · <kbd>Shift + ⌘/Ctrl + Z</kbd> 重做</span></p></section>
+            </div>
+          </details>
         </section>
 
         <aside className="panel inspector-panel">

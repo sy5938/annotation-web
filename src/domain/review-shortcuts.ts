@@ -1,6 +1,6 @@
 export type ReviewShortcut =
   | { command: "toggle-playback" }
-  | { command: "step-frames"; frames: number }
+  | { command: "seek-seconds"; seconds: number }
   | { command: "navigate-keyframe"; direction: number }
   | { command: "change-speed"; direction: number }
   | { command: "record-event"; player: "A" | "B"; event: "made_2" | "made_3" | "defense" | "missed" }
@@ -25,8 +25,8 @@ export function resolveReviewShortcut(input: ShortcutInput): ReviewShortcut | nu
   const key = input.key.toLowerCase();
   const commandModifier = Boolean(input.metaKey || input.ctrlKey);
   if (input.key === " ") shortcut = { command: "toggle-playback" };
-  if (input.key === "ArrowLeft") shortcut = { command: "step-frames", frames: input.shiftKey ? -5 : -1 };
-  if (input.key === "ArrowRight") shortcut = { command: "step-frames", frames: input.shiftKey ? 5 : 1 };
+  if (input.key === "ArrowLeft") shortcut = { command: "seek-seconds", seconds: -5 };
+  if (input.key === "ArrowRight") shortcut = { command: "seek-seconds", seconds: 5 };
   if (input.key === "[") shortcut = { command: "navigate-keyframe", direction: -1 };
   if (input.key === "]") shortcut = { command: "navigate-keyframe", direction: 1 };
   if (input.key === "-") shortcut = { command: "change-speed", direction: -1 };

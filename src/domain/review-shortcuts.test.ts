@@ -19,11 +19,11 @@ describe("review keyboard shortcuts", () => {
     expect(resolveReviewShortcut({ key: "ArrowLeft", shiftKey: false, repeat: false, editable: true })).toBeNull();
   });
 
-  it("maps arrows to one or five frame steps", () => {
+  it("maps arrows to five-second skips regardless of Shift", () => {
     expect(resolveReviewShortcut({ key: "ArrowLeft", shiftKey: false, repeat: false, editable: false }))
-      .toEqual({ command: "step-frames", frames: -1 });
+      .toEqual({ command: "seek-seconds", seconds: -5 });
     expect(resolveReviewShortcut({ key: "ArrowRight", shiftKey: true, repeat: false, editable: false }))
-      .toEqual({ command: "step-frames", frames: 5 });
+      .toEqual({ command: "seek-seconds", seconds: 5 });
   });
 
   it("maps both player shortcut rows to review events", () => {

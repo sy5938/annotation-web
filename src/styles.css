@@ -99,7 +99,19 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
 .ball-box span { background: #149c86; }
 .ball-box.selected { opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #149c86; }
 .draft-box { z-index: 4; border: 2px dashed #fff; background: #22c7ac30; }
-.keyboard-hint { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; padding: 7px; color: #717c8d; font-size: 9px; }
+.shortcut-guide { margin-top: 7px; border: 1px solid var(--line); border-radius: 10px; background: #f8f9fa; color: var(--muted); }
+.shortcut-guide summary { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 11px; cursor: pointer; list-style: none; user-select: none; }
+.shortcut-guide summary::-webkit-details-marker { display: none; }
+.shortcut-guide summary > span { color: var(--ink); font-size: 11px; font-weight: 800; }
+.shortcut-guide summary small { flex: 1; font-size: 9px; }
+.shortcut-guide summary::after { padding: 3px 7px; border: 1px solid var(--line); border-radius: 99px; background: #fff; color: var(--teal); font-size: 9px; font-weight: 750; content: "打开"; }
+.shortcut-guide[open] summary::after { content: "关闭"; }
+.shortcut-guide-content { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 9px 9px; }
+.shortcut-guide-content section { padding: 9px; border: 1px solid #e3e7ec; border-radius: 8px; background: #fff; }
+.shortcut-guide-content strong { color: var(--ink); font-size: 10px; }
+.shortcut-guide-content p { display: flex; gap: 7px; margin: 7px 0 0; font-size: 9px; line-height: 1.7; }
+.shortcut-guide-content p b { min-width: 28px; color: var(--teal); }
+.shortcut-guide kbd { padding: 2px 5px; border: 1px solid #cfd6df; border-bottom-width: 2px; border-radius: 4px; background: #f7f8fa; color: var(--ink); font: 8px ui-monospace, monospace; }
 .overlay-controls { display: flex; align-items: center; justify-content: center; padding: 8px 7px 1px; }
 .overlay-controls button { min-height: 29px; padding: 5px 9px; font-size: 9px; }
 .overlay-controls button.active { border-color: #9fcac4; background: #eef8f6; color: var(--teal); }
@@ -202,6 +214,7 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
   .inspector-panel { grid-row: 3; grid-column: auto; }
   .review-controls-sticky { position: static; }
   .video-toolbar { flex-wrap: wrap; }
+  .shortcut-guide-content { grid-template-columns: 1fr; }
   .timeline-meta { align-items: stretch; flex-direction: column; }
   .preview-summary > div { flex: 1; }
   .preview-summary { width: 100%; }
