@@ -1,8 +1,13 @@
-# vinext-starter
+# 篮球视频标定台
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+面向篮球视频的本地优先手动标定工具。视频直接从浏览器读取，不会上传；标定结果以 JSON 文件下载到本机。
+
+主要功能：
+
+- 记录两名球员的进 2 分、进 3 分、未进与好防守事件
+- 逐帧前进或后退，框选并锁定篮筐位置
+- 按“接近篮筐、经过篮筐、篮下离开”标注篮球框
+- 导出包含投篮事件、比分和目标框的完整 JSON
 
 ## Prerequisites
 
@@ -13,12 +18,20 @@ Drizzle support.
 ```bash
 npm install
 npm run dev
-npm run build
 ```
+
+终端显示本地地址后，在浏览器中打开它，然后点击“打开本机视频”。日常使用只需要 `npm run dev`；`npm run build` 用于发布前检查。
+
+## 本地数据说明
+
+- 选中的视频只通过浏览器本地对象 URL 播放。
+- 当前版本不会将视频或标注发送到服务器。
+- 点击“导出标注 JSON”后，请把 JSON 和原视频放在一起备份。
+- GitHub 仓库只用于保存程序源代码，不用于存放待标定视频。
 
 This starter does not use `wrangler.jsonc`.
 
-## Included Shape
+## 技术结构
 
 - edit site code under `app/`
 - `.openai/hosting.json` declares optional Sites D1 and R2 bindings

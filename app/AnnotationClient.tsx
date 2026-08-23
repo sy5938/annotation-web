@@ -127,23 +127,32 @@ export default function AnnotationClient() {
 
   return (
     <main>
-      <p className="eyebrow">篮球高光 · 远程标注工作台</p>
-      <h1>一球一组，标完立即清屏</h1>
-      <p>先快速剪辑：暂停到出手结果附近，记录“未进 / 进 2 分 / 进 3 分”。训练检测时，再用“接近 → 经过 → 篮下”各标一次篮球框。</p>
-      <div className="toolbar">
-        <label className="file-picker">选择本机 1080P 视频<input type="file" accept="video/*" onChange={selectVideo} /></label>
-        <button className={mode === "rim" ? "selected" : ""} onClick={() => { video.current?.pause(); setShowAnnotations(true); setMode("rim"); }} disabled={rimLocked}>开始框选篮筐</button>
-        <button className={mode === "ball" ? "selected" : ""} onClick={() => { video.current?.pause(); setShowAnnotations(true); setMode("ball"); }}>开始框选篮球</button>
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">COURTSIDE LABEL · 篮球数据工具</p>
+          <h1>篮球视频标定台</h1>
+          <p className="intro">记录投篮结果，逐帧框选篮筐与篮球。标完一球即可清屏进入下一组。</p>
+        </div>
+        <div className="local-badge" role="status">
+          <span className="status-dot" />
+          <span><strong>本地工作模式</strong><small>视频与标注不会上传</small></span>
+        </div>
+      </header>
+      <div className="toolbar" aria-label="标定工具">
+        <label className="file-picker">打开本机视频<input type="file" accept="video/*" onChange={selectVideo} /></label>
+        <span className="video-name" title={videoName}>{videoName}</span>
+        <button className={mode === "rim" ? "selected" : ""} aria-pressed={mode === "rim"} onClick={() => { video.current?.pause(); setShowAnnotations(true); setMode("rim"); }} disabled={rimLocked}>框选篮筐</button>
+        <button className={mode === "ball" ? "selected" : ""} aria-pressed={mode === "ball"} onClick={() => { video.current?.pause(); setShowAnnotations(true); setMode("ball"); }}>框选篮球</button>
       </div>
-      <div className="phases">
+      <div className="timeline-controls" aria-label="逐帧控制">
         <button onClick={() => stepFrames(-5)}>后退 5 帧</button><button onClick={() => stepFrames(-1)}>后退 1 帧</button>
-        <strong>当前：{currentTime.toFixed(2)} 秒</strong>
+        <strong>{formatTime(currentTime)}</strong>
         <button onClick={() => stepFrames(1)}>前进 1 帧</button><button onClick={() => stepFrames(5)}>前进 5 帧</button>
       </div>
-      {mode === "ball" && <div className="phases">{(Object.keys(phaseLabels) as Phase[]).map((item) => <button className={phase === item ? "selected" : ""} key={item} onClick={() => setPhase(item)}>{phaseLabels[item]}</button>)}</div>}
-      <section>
-        <aside className="score-panel">
-          <h2>得分记录</h2>
+      {mode === "ball" && <div className="phase-selector" aria-label="篮球运动阶段">{(Object.keys(phaseLabels) as Phase[]).map((item) => <button className={phase === item ? "selected" : ""} aria-pressed={phase === item} key={item} onClick={() => setPhase(item)}>{phaseLabels[item]}</button>)}</div>}
+      <section className="workspace">
+        <aside className="panel score-panel">
+          <div className="panel-heading"><span>01</span><h2>比赛记录</h2></div>
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
           <div className="score-grid">
             <div className="player-column"><strong>甲 · 第一人</strong><input aria-label="甲的名字" value={playerNames.甲} onChange={(event) => setPlayerNames({ ...playerNames, 甲: event.target.value })} /></div>
@@ -155,12 +164,15 @@ export default function AnnotationClient() {
           </div>
           <button className="undo-score" onClick={() => setShotEvents(shotEvents.slice(0, -1))} disabled={!shotEvents.length}>撤销上一个结果</button>
           <div className="previous-score"><label>上一轮 {playerNames.甲 || "甲"}<input aria-label="甲上一轮得分" type="number" min="0" value={previousScores.甲 || ""} onChange={(event) => setPreviousScores({ ...previousScores, 甲: Math.max(0, Number(event.target.value)) })} /></label><label>{playerNames.乙 || "乙"}<input aria-label="乙上一轮得分" type="number" min="0" value={previousScores.乙 || ""} onChange={(event) => setPreviousScores({ ...previousScores, 乙: Math.max(0, Number(event.target.value)) })} /></label></div>
-          <p className="score-total">总分　{playerNames.甲 || "甲"} <strong>{previousScores.甲 + score("甲")}</strong> ： <strong>{previousScores.乙 + score("乙")}</strong> {playerNames.乙 || "乙"}</p>
-          <h3>已记录</h3>
-          <ul className="event-list">{shotEvents.slice().reverse().map((shot, reverseIndex) => <li key={`${shot.time_seconds}-${shotEvents.length - reverseIndex - 1}`}><time>{formatTime(shot.time_seconds)}</time><span>{playerNames[shot.scorer] || shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : shot.event === "missed_shot" ? "未进" : "好防守"}</span></li>)}</ul>
+          <p className="score-total">总分 {playerNames.甲 || "甲"} <strong>{previousScores.甲 + score("甲")}</strong> ： <strong>{previousScores.乙 + score("乙")}</strong> {playerNames.乙 || "乙"}</p>
+          <h3>事件时间线 <span>{shotEvents.length}</span></h3>
+          {shotEvents.length ? <ul className="event-list">{shotEvents.slice().reverse().map((shot, reverseIndex) => <li key={`${shot.time_seconds}-${shotEvents.length - reverseIndex - 1}`}><time>{formatTime(shot.time_seconds)}</time><span>{playerNames[shot.scorer] || shot.scorer} · {shot.event === "made_basket" ? `进 ${shot.points} 分` : shot.event === "missed_shot" ? "未进" : "好防守"}</span></li>)}</ul> : <p className="empty-state">还没有记录投篮事件</p>}
         </aside>
         <div className="video-shell">
+          <div className="canvas-meta"><span>视频画布</span><span>{dimensions.width} × {dimensions.height}</span></div>
           <div className="video" style={{ cursor: mode === "rim" || mode === "ball" ? "crosshair" : "default" }}>
+          {/* User-selected annotation footage may be silent and has no known caption source. */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video ref={video} controls src={videoSource} onTimeUpdate={() => video.current && setCurrentTime(video.current.currentTime)} onLoadedMetadata={() => video.current && setDimensions({ width: video.current.videoWidth, height: video.current.videoHeight })} />
           {mode !== "idle" && <div className="drawing-layer" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = position(event); setStart(point); setDraft({ ...point, x2: point.x, y2: point.y }); }} onPointerMove={(event) => { if (start) setDraft(selection(start, position(event))); }} onPointerUp={(event) => { if (!start) return; const box = selection(start, position(event)); if (box.x2 - box.x >= 3 && box.y2 - box.y >= 3) { if (mode === "rim") setRim([box.x, box.y, box.x2, box.y2]); else setBoxes([...boxes, { ...box, phase, time_seconds: Number(currentTime.toFixed(2)) }]); } setStart(null); setDraft(null); setMode("idle"); }} onPointerCancel={() => { setStart(null); setDraft(null); setMode("idle"); }} />}
           <div className="saved-boxes" style={{ visibility: showAnnotations ? "visible" : "hidden" }}>
@@ -170,16 +182,16 @@ export default function AnnotationClient() {
           {draft && <div className="draft" style={styleFor(draft)} />}
           </div>
         </div>
-        <aside className="controls-panel">
-          <h2>视频与框选</h2>
+        <aside className="panel controls-panel">
+          <div className="panel-heading"><span>02</span><h2>标定控制</h2></div>
           <p className="current-time">当前时间 <strong>{formatTime(currentTime)}</strong></p>
           <button onClick={() => setRimLocked(true)} disabled={!rim || rimLocked}>{rimLocked ? "篮筐位置已锁定" : "确认并锁定篮筐位置"}</button>
           <button onClick={toggleSavedBoxes} disabled={!rim && !allBoxes.length}>{showAnnotations ? "隐藏已框选的蓝框" : "显示已框选的蓝框"}</button>
           <button onClick={() => setBoxes(boxes.slice(0, -1))} disabled={!boxes.length}>撤销当前框</button>
           <button onClick={() => { if (boxes.length) { setCompleted([...completed, boxes]); setBoxes([]); setStart(null); } }} disabled={!boxes.length}>完成本次进球并清屏</button>
           <button onClick={() => { setBoxes([]); setStart(null); }} disabled={!boxes.length}>清除当前临时框</button>
-          <button onClick={save} disabled={!shotEvents.length && !rim && !boxes.length && !completed.length}>下载全部标注 JSON</button>
-          <details><summary>标注说明</summary><p>剪辑只记录结果即可。篮筐只需框一次，点击确认后会锁定。训练检测时，再各框 3 个篮球帧。</p><p>标注文件：{annotationName}</p></details>
+          <button className="export-button" onClick={save} disabled={!shotEvents.length && !rim && !boxes.length && !completed.length}>导出标注 JSON</button>
+          <details><summary>操作说明</summary><p>篮筐只需框一次并锁定。检测训练时，按“接近、经过、篮下”各框一个篮球帧。</p><p className="annotation-file">{annotationName}</p></details>
         </aside>
       </section>
     </main>
