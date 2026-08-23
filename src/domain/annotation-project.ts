@@ -77,6 +77,26 @@ export function createAnnotationProject(videoName = ""): AnnotationProject {
   };
 }
 
+export function mergeOpenedVideo(
+  project: AnnotationProject,
+  video: Pick<AnnotationProject["source_video"], "name" | "width" | "height" | "duration_seconds">,
+): AnnotationProject {
+  return {
+    ...project,
+    source_video: { ...project.source_video, ...video },
+  };
+}
+
+export function timelineDurationFor(project: AnnotationProject): number {
+  if (project.source_video.duration_seconds > 0) return project.source_video.duration_seconds;
+  return project.records.reduce((duration, record) => {
+    const keyframeDuration = record.kind === "shot"
+      ? record.trajectory.reduce((latest, keyframe) => Math.max(latest, keyframe.time_seconds), 0)
+      : 0;
+    return Math.max(duration, recordTime(record), keyframeDuration);
+  }, 0);
+}
+
 export function projectReducer(project: AnnotationProject, action: ProjectAction): AnnotationProject {
   switch (action.type) {
     case "replace":

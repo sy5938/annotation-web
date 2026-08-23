@@ -1,12 +1,14 @@
 import { ChangeEvent, PointerEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   createAnnotationProject,
+  mergeOpenedVideo,
   parseAnnotationProject,
   projectFileName,
   projectReducer,
   recordTime,
   scoreFor,
   serializeAnnotationProject,
+  timelineDurationFor,
   type AnnotationRecord,
   type Keyframe,
   type Phase,
@@ -17,6 +19,7 @@ import {
 import {
   formatTime,
   frameStep,
+  pointerToTimelineTime,
   pointerToVideoPoint,
   rectFromPoints,
   rectStyle,
@@ -43,10 +46,10 @@ const speeds = [0.25, 0.5, 1, 1.5, 2];
 export default function App() {
   const [project, dispatch] = useReducer(projectReducer, undefined, () => createAnnotationProject());
   const [videoUrl, setVideoUrl] = useState("");
+  const [openedVideoName, setOpenedVideoName] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [showHoopOverlay, setShowHoopOverlay] = useState(true);
-  const [showTrajectoryOverlay, setShowTrajectoryOverlay] = useState(false);
+  const [showOverlays, setShowOverlays] = useState(true);
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export default function App() {
   const [draftRect, setDraftRect] = useState<ReturnType<typeof rectFromPoints> | null>(null);
   const [notice, setNotice] = useState("打开视频，或导入已有标定工程继续工作。");
   const videoRef = useRef<HTMLVideoElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const videoUrlRef = useRef("");
 
   const records = useMemo(
@@ -66,6 +70,7 @@ export default function App() {
   const selectedRecord = project.records.find((record) => record.id === selectedRecordId) ?? null;
   const selectedShot = selectedRecord?.kind === "shot" ? selectedRecord : null;
   const selectedKeyframe = selectedShot?.trajectory.find((keyframe) => keyframe.id === selectedKeyframeId) ?? null;
+  const timelineDuration = useMemo(() => timelineDurationFor(project), [project]);
   useEffect(() => () => {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
   }, []);
@@ -77,6 +82,7 @@ export default function App() {
     const url = URL.createObjectURL(file);
     videoUrlRef.current = url;
     setVideoUrl(url);
+    setOpenedVideoName(file.name);
     setCurrentTime(0);
     const mismatch = project.source_video.name && project.source_video.name !== file.name;
     dispatch({ type: "set_video", video: { name: file.name } });
@@ -89,12 +95,29 @@ export default function App() {
     if (!file) return;
     try {
       const parsed = parseAnnotationProject(JSON.parse(await file.text()) as unknown);
-      dispatch({ type: "replace", project: parsed.project });
-      const first = [...parsed.project.records].sort((a, b) => recordTime(a) - recordTime(b))[0];
+      const video = videoRef.current;
+      const importedProject = video && Number.isFinite(video.duration) && video.duration > 0
+        ? mergeOpenedVideo(parsed.project, {
+            name: openedVideoName || parsed.project.source_video.name,
+            width: video.videoWidth,
+            height: video.videoHeight,
+            duration_seconds: video.duration,
+          })
+        : parsed.project;
+      dispatch({ type: "replace", project: importedProject });
+      const first = [...importedProject.records].sort((a, b) => recordTime(a) - recordTime(b))[0];
       setSelectedRecordId(first?.id ?? null);
       setSelectedKeyframeId(null);
       setTrajectoryOpen(false);
-      setNotice(parsed.migratedFromLegacy ? "旧版标注已迁移到新版工程，请选择对应视频后检查记录。" : "工程已导入，请选择对应视频继续回看。 ");
+      setShowOverlays(true);
+      seek(first ? recordTime(first) : 0);
+      const expectedName = parsed.project.source_video.name;
+      const mismatch = openedVideoName && expectedName && openedVideoName !== expectedName;
+      setNotice(mismatch
+        ? `工程记录的视频是“${expectedName}”，当前打开的是“${openedVideoName}”，请确认是否匹配。`
+        : parsed.migratedFromLegacy
+          ? "旧版标注已迁移；已有画面标记已识别，可直接开始人工复核。"
+          : "工程已导入；已有画面标记已识别，可直接开始人工复核。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "工程导入失败。");
     }
@@ -297,6 +320,58 @@ export default function App() {
     setTrajectoryOpen(false);
   }
 
+  function timelineTime(clientX: number): number {
+    const track = timelineRef.current?.getBoundingClientRect();
+    if (!track) return 0;
+    return pointerToTimelineTime(clientX, track, timelineDuration);
+  }
+
+  function beginTimelineSeek(event: PointerEvent<HTMLDivElement>) {
+    if (timelineDuration <= 0) return;
+    videoRef.current?.pause();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    seek(timelineTime(event.clientX));
+  }
+
+  function continueTimelineSeek(event: PointerEvent<HTMLDivElement>) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    seek(timelineTime(event.clientX));
+  }
+
+  function beginRecordDrag(event: PointerEvent<HTMLButtonElement>, record: AnnotationRecord) {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    videoRef.current?.pause();
+    selectRecord(record);
+  }
+
+  function continueRecordDrag(event: PointerEvent<HTMLButtonElement>, record: AnnotationRecord) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    event.stopPropagation();
+    const time = roundTime(timelineTime(event.clientX));
+    if (record.kind === "shot") {
+      dispatch({ type: "update_shot", id: record.id, patch: { result_time_seconds: time } });
+    } else {
+      dispatch({ type: "update_defense", id: record.id, patch: { time_seconds: time } });
+    }
+    seek(time);
+  }
+
+  function beginKeyframeDrag(event: PointerEvent<HTMLButtonElement>, keyframe: Keyframe) {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    videoRef.current?.pause();
+    selectKeyframe(keyframe);
+  }
+
+  function continueKeyframeDrag(event: PointerEvent<HTMLButtonElement>, keyframe: Keyframe) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId) || !selectedShot) return;
+    event.stopPropagation();
+    const time = roundTime(timelineTime(event.clientX));
+    dispatch({ type: "update_keyframe", shotId: selectedShot.id, keyframeId: keyframe.id, patch: { time_seconds: time } });
+    seek(time);
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -323,7 +398,7 @@ export default function App() {
   });
 
   const visibleKeyframes = selectedShot?.trajectory.filter((keyframe) =>
-    keyframe.id === selectedKeyframeId || Math.abs(keyframe.time_seconds - currentTime) <= 0.5 / project.source_video.fps,
+    keyframe.id === selectedKeyframeId || Math.abs(keyframe.time_seconds - currentTime) <= Math.max(0.15, 0.5 / project.source_video.fps),
   ) ?? [];
 
   return (
@@ -391,16 +466,14 @@ export default function App() {
                 video.playbackRate = playbackRate;
                 dispatch({ type: "set_video", video: { width: video.videoWidth, height: video.videoHeight, duration_seconds: video.duration } });
               }} />
-              {showHoopOverlay && project.hoop_region && <div className="box hoop-box" style={rectStyle(project.hoop_region, project.source_video)}><span>篮筐</span></div>}
-              {showTrajectoryOverlay && visibleKeyframes.map((keyframe) => <div className={keyframe.id === selectedKeyframeId ? "box ball-box selected" : "box ball-box"} style={rectStyle(keyframe.box, project.source_video)} key={keyframe.id}><span>{phaseLabels[keyframe.phase]}</span></div>)}
+              {showOverlays && project.hoop_region && <div className="box hoop-box" style={rectStyle(project.hoop_region, project.source_video)}><span>篮筐</span></div>}
+              {showOverlays && visibleKeyframes.map((keyframe) => <div className={keyframe.id === selectedKeyframeId ? "box ball-box selected" : "box ball-box"} style={rectStyle(keyframe.box, project.source_video)} key={keyframe.id}><span>{phaseLabels[keyframe.phase]}</span></div>)}
               {draftRect && <div className="box draft-box" style={rectStyle(draftRect, project.source_video)} />}
               {drawMode !== "idle" && <div className="drawing-layer" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = drawingPoint(event); setDrawStart(point); setDraftRect({ ...point, x2: point.x, y2: point.y }); }} onPointerMove={(event) => { if (drawStart) setDraftRect(rectFromPoints(drawStart, drawingPoint(event))); }} onPointerUp={finishDrawing} onPointerCancel={cancelDrawing} />}
             </div> : <div className="video-empty"><strong>打开本机视频开始标定</strong><span>导入工程后仍需选择对应视频，浏览器不会读取任意本机路径。</span></div>}
           </div>
           <div className="overlay-controls" aria-label="画面标记显示设置">
-            <span>画面标记</span>
-            <button className={showHoopOverlay ? "active" : ""} aria-pressed={showHoopOverlay} onClick={() => setShowHoopOverlay((visible) => !visible)} disabled={!project.hoop_region}>{showHoopOverlay ? "隐藏篮筐" : "显示篮筐"}</button>
-            <button className={showTrajectoryOverlay ? "active" : ""} aria-pressed={showTrajectoryOverlay} onClick={() => setShowTrajectoryOverlay((visible) => !visible)} disabled={!selectedShot?.trajectory.length}>{showTrajectoryOverlay ? "隐藏球框" : "显示球框"}</button>
+            <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>
           <div className="keyboard-hint"><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
         </section>
@@ -442,13 +515,15 @@ export default function App() {
       </section>
 
       <section className="timeline-panel" aria-label="标定时间轴">
-        <div className="timeline-heading"><div><strong>投篮时间轴</strong><span>{selectedShot ? `${project.players[selectedShot.player]} · ${outcomeLabels[selectedShot.outcome]}` : "点击投篮标记跳转回看"}</span></div>{trajectoryOpen && <div><button onClick={() => navigateKeyframe(-1)} disabled={!selectedShot?.trajectory.length}>上一关键帧</button><button onClick={() => navigateKeyframe(1)} disabled={!selectedShot?.trajectory.length}>下一关键帧</button></div>}</div>
-        <div className="timeline-track">
-          <div className="timeline-progress" style={{ width: `${timelinePosition(currentTime, project.source_video.duration_seconds)}%` }} />
-          {records.map((record) => <button className={record.id === selectedRecordId ? "timeline-record selected" : "timeline-record"} style={{ left: `${timelinePosition(recordTime(record), project.source_video.duration_seconds)}%` }} key={record.id} title={`${project.players[record.player]} ${formatTime(recordTime(record))}`} onClick={() => selectRecord(record)} />)}
-          {trajectoryOpen && selectedShot?.trajectory.map((keyframe) => <button className={keyframe.id === selectedKeyframeId ? `timeline-keyframe ${keyframe.phase} selected` : `timeline-keyframe ${keyframe.phase}`} style={{ left: `${timelinePosition(keyframe.time_seconds, project.source_video.duration_seconds)}%` }} key={keyframe.id} title={`${phaseLabels[keyframe.phase]} ${formatTime(keyframe.time_seconds)}`} onClick={() => selectKeyframe(keyframe)} />)}
+        <div className="timeline-heading"><div><strong>人工复核时间轴</strong><span>{selectedShot ? `${project.players[selectedShot.player]} · ${outcomeLabels[selectedShot.outcome]}` : "拖动播放头定位；拖动投篮点直接改时间"}</span></div>{trajectoryOpen && <div><button onClick={() => navigateKeyframe(-1)} disabled={!selectedShot?.trajectory.length}>上一关键帧</button><button onClick={() => navigateKeyframe(1)} disabled={!selectedShot?.trajectory.length}>下一关键帧</button></div>}</div>
+        <div className="review-guide"><b>怎么调整：</b><span>① 在空白轨道按住拖动，定位视频</span><span>② 直接拖动红色投篮点，修改结果时间</span>{trajectoryOpen && <span>③ 拖动彩色关键帧，修改关键帧时间</span>}</div>
+        <div className={timelineDuration > 0 ? "timeline-track" : "timeline-track disabled"} ref={timelineRef} onPointerDown={beginTimelineSeek} onPointerMove={continueTimelineSeek}>
+          <div className="timeline-progress" style={{ width: `${timelinePosition(currentTime, timelineDuration)}%` }} />
+          {records.map((record) => <button className={record.id === selectedRecordId ? "timeline-record selected" : "timeline-record"} style={{ left: `${timelinePosition(recordTime(record), timelineDuration)}%` }} key={record.id} title={`拖动调整：${project.players[record.player]} ${formatTime(recordTime(record))}`} onPointerDown={(event) => beginRecordDrag(event, record)} onPointerMove={(event) => continueRecordDrag(event, record)} onClick={(event) => { if (event.detail === 0) selectRecord(record); }} />)}
+          {trajectoryOpen && selectedShot?.trajectory.map((keyframe) => <button className={keyframe.id === selectedKeyframeId ? `timeline-keyframe ${keyframe.phase} selected` : `timeline-keyframe ${keyframe.phase}`} style={{ left: `${timelinePosition(keyframe.time_seconds, timelineDuration)}%` }} key={keyframe.id} title={`拖动调整：${phaseLabels[keyframe.phase]} ${formatTime(keyframe.time_seconds)}`} onPointerDown={(event) => beginKeyframeDrag(event, keyframe)} onPointerMove={(event) => continueKeyframeDrag(event, keyframe)} onClick={(event) => { if (event.detail === 0) selectKeyframe(keyframe); }} />)}
         </div>
-        <div className="timeline-scale"><span>0:00</span><span>{formatTime(project.source_video.duration_seconds / 2)}</span><span>{formatTime(project.source_video.duration_seconds)}</span></div>
+        <div className="timeline-scale"><span>0:00</span><span>{formatTime(timelineDuration / 2)}</span><span>{formatTime(timelineDuration)}</span></div>
+        {timelineDuration <= 0 && <p className="timeline-empty-hint">请先打开视频，或导入包含时间记录的工程。</p>}
       </section>
     </main>
   );

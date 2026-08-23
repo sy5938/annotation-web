@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameStep, pointerToVideoPoint, rectFromPoints } from "./video-geometry";
+import { frameStep, pointerToTimelineTime, pointerToVideoPoint, rectFromPoints } from "./video-geometry";
 
 describe("video time and geometry", () => {
   it("steps with project FPS and clamps to the video", () => {
@@ -18,5 +18,12 @@ describe("video time and geometry", () => {
 
   it("normalizes rectangles drawn in any direction", () => {
     expect(rectFromPoints({ x: 20, y: 30 }, { x: 5, y: 10 })).toEqual({ x: 5, y: 10, x2: 20, y2: 30 });
+  });
+
+  it("maps and clamps a dragged timeline pointer to video time", () => {
+    const track = { left: 100, width: 400 };
+    expect(pointerToTimelineTime(300, track, 120)).toBe(60);
+    expect(pointerToTimelineTime(50, track, 120)).toBe(0);
+    expect(pointerToTimelineTime(550, track, 120)).toBe(120);
   });
 });

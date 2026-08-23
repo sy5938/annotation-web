@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import legacyFixture from "../../tests/fixtures/legacy-annotation.json";
 import {
   createAnnotationProject,
+  mergeOpenedVideo,
   parseAnnotationProject,
   projectReducer,
   scoreFor,
   serializeAnnotationProject,
+  timelineDurationFor,
   type ShotRecord,
 } from "./annotation-project";
 
@@ -84,5 +86,24 @@ describe("Annotation Project", () => {
     expect(parsed.migratedFromLegacy).toBe(true);
     expect(parsed.project.hoop_region).not.toBeNull();
     expect(parsed.project.records.some((record) => record.kind === "shot")).toBe(true);
+  });
+
+  it("keeps opened-video metadata when a legacy project is imported afterwards", () => {
+    const imported = parseAnnotationProject(legacyFixture).project;
+    const merged = mergeOpenedVideo(imported, {
+      name: "game.mp4",
+      width: 3840,
+      height: 2160,
+      duration_seconds: 125,
+    });
+
+    expect(merged.source_video).toMatchObject({
+      name: "game.mp4",
+      width: 3840,
+      height: 2160,
+      duration_seconds: 125,
+    });
+    expect(merged.records).toEqual(imported.records);
+    expect(timelineDurationFor(imported)).toBeGreaterThan(0);
   });
 });

@@ -7,6 +7,15 @@ export function frameStep(currentTime: number, frames: number, fps: number, dura
   return clamp(currentTime + frames / safeFps, 0, Math.max(0, duration));
 }
 
+export function pointerToTimelineTime(
+  clientX: number,
+  track: { left: number; width: number },
+  duration: number,
+): number {
+  if (track.width <= 0 || duration <= 0) return 0;
+  return clamp((clientX - track.left) / track.width, 0, 1) * duration;
+}
+
 export function pointerToVideoPoint(
   client: Point,
   surface: { left: number; top: number; width: number; height: number },
