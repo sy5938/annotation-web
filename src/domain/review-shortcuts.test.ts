@@ -44,4 +44,11 @@ describe("review keyboard shortcuts", () => {
       .toEqual({ command: "consume" });
     expect(resolveReviewShortcut({ key: "z", shiftKey: false, repeat: false, editable: true })).toBeNull();
   });
+
+  it("routes Command+Z and Ctrl+Z to undo without recording a shot", () => {
+    expect(resolveReviewShortcut({ key: "z", shiftKey: false, repeat: false, editable: false, metaKey: true }))
+      .toEqual({ command: "undo-record" });
+    expect(resolveReviewShortcut({ key: "Z", shiftKey: true, repeat: false, editable: false, ctrlKey: true }))
+      .toEqual({ command: "undo-record" });
+  });
 });

@@ -344,6 +344,18 @@ export default function App() {
     setTrajectoryOpen(false);
   }
 
+  function undoLastRecord() {
+    const lastRecord = project.records.at(-1);
+    if (!lastRecord) return;
+    dispatch({ type: "undo_last_record" });
+    if (selectedRecordId === lastRecord.id) {
+      setSelectedRecordId(null);
+      setSelectedKeyframeId(null);
+      setTrajectoryOpen(false);
+    }
+    setNotice("已撤销上一个事件记录。");
+  }
+
   function timelineTime(clientX: number): number {
     const track = timelineRef.current?.getBoundingClientRect();
     if (!track) return 0;
@@ -353,6 +365,8 @@ export default function App() {
   function beginTimelineSeek(event: PointerEvent<HTMLDivElement>) {
     if (timelineDuration <= 0) return;
     videoRef.current?.pause();
+    setSelectedRecordId(null);
+    setSelectedKeyframeId(null);
     event.currentTarget.setPointerCapture(event.pointerId);
     seek(timelineTime(event.clientX));
   }
@@ -404,6 +418,9 @@ export default function App() {
         shiftKey: event.shiftKey,
         repeat: event.repeat,
         editable: Boolean(target?.matches("input, select, textarea, [contenteditable='true']")),
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
       });
       if (!shortcut) return;
       event.preventDefault();
@@ -415,6 +432,7 @@ export default function App() {
         if (shortcut.event === "defense") addDefense(shortcut.player);
         else addShot(shortcut.player, shortcut.event);
       }
+      if (shortcut.command === "undo-record") undoLastRecord();
     }
 
     function onKeyUp(event: KeyboardEvent) {
@@ -438,6 +456,9 @@ export default function App() {
     currentTime,
     project.source_video.fps,
   );
+  const timelineRecordsToRender = selectedRecordId
+    ? visibleTimelineRecords.filter((record) => record.id === selectedRecordId)
+    : visibleTimelineRecords;
 
   const timeline = (
     <section className="timeline-panel embedded" aria-label="人工复核时间轴">
@@ -468,7 +489,7 @@ export default function App() {
           />)}
         </div>
         <div className="timeline-progress" style={{ width: `${timelinePosition(currentTime, timelineDuration)}%` }} />
-        {visibleTimelineRecords.map((record) => {
+        {timelineRecordsToRender.map((record) => {
           const category = eventCategory(record);
           return <button
             className={`timeline-record ${category}${record.id === selectedRecordId ? " selected" : ""}`}
@@ -532,6 +553,7 @@ export default function App() {
             </button>)}
             {!records.length && <p className="empty-state">播放到结果画面后，从上方快速记录第一球。</p>}
           </div>
+          <button className="undo-record" onClick={undoLastRecord} disabled={!project.records.length}>撤销上一个记录 <span>⌘Z</span></button>
         </aside>
 
         <section className="video-column">
@@ -564,7 +586,7 @@ export default function App() {
           <div className="overlay-controls" aria-label="画面标记显示设置">
             <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>
-          <div className="keyboard-hint"><span>{project.players.A || "甲"}：Z 2分 · X 3分 · C 防守 · V 未进</span><span>{project.players.B || "乙"}：A 2分 · S 3分 · D 防守 · F 未进</span><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
+          <div className="keyboard-hint"><span>{project.players.A || "甲"}：Z 2分 · X 3分 · C 防守 · V 未进</span><span>{project.players.B || "乙"}：A 2分 · S 3分 · D 防守 · F 未进</span><span>⌘/Ctrl + Z 撤销记录</span><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
         </section>
 
         <aside className="panel inspector-panel">
