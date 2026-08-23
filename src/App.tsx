@@ -742,7 +742,7 @@ export default function App() {
     <main>
       <header className="app-header">
         <div>
-          <p className="eyebrow">COURTSIDE LABEL · LOCAL · V0.2 PREVIEW</p>
+          <p className="eyebrow">COURTSIDE LABEL · LOCAL · V0.2</p>
           <h1>篮球视频标定台</h1>
           <p className="intro">工程、视频与标注只在本机处理。用时间轴回看投篮，并直接覆盖需要调整的关键帧。</p>
         </div>
