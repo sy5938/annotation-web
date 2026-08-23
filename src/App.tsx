@@ -17,6 +17,7 @@ import {
   type ShotRecord,
 } from "./domain/annotation-project";
 import { buildPreview } from "./domain/preview";
+import { visibleKeyframesAtTime } from "./domain/keyframe-visibility";
 import { resolveReviewShortcut } from "./domain/review-shortcuts";
 import {
   formatTime,
@@ -410,6 +411,10 @@ export default function App() {
       if (shortcut.command === "step-frames") stepFrames(shortcut.frames);
       if (shortcut.command === "navigate-keyframe") navigateKeyframe(shortcut.direction);
       if (shortcut.command === "change-speed") changeSpeed(shortcut.direction);
+      if (shortcut.command === "record-event") {
+        if (shortcut.event === "defense") addDefense(shortcut.player);
+        else addShot(shortcut.player, shortcut.event);
+      }
     }
 
     function onKeyUp(event: KeyboardEvent) {
@@ -427,9 +432,12 @@ export default function App() {
     };
   });
 
-  const visibleKeyframes = selectedShot?.trajectory.filter((keyframe) =>
-    keyframe.id === selectedKeyframeId || Math.abs(keyframe.time_seconds - currentTime) <= Math.max(0.15, 0.5 / project.source_video.fps),
-  ) ?? [];
+  const visibleKeyframes = visibleKeyframesAtTime(
+    selectedShot?.trajectory ?? [],
+    selectedKeyframeId,
+    currentTime,
+    project.source_video.fps,
+  );
 
   const timeline = (
     <section className="timeline-panel embedded" aria-label="人工复核时间轴">
@@ -556,7 +564,7 @@ export default function App() {
           <div className="overlay-controls" aria-label="画面标记显示设置">
             <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>
-          <div className="keyboard-hint"><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
+          <div className="keyboard-hint"><span>{project.players.A || "甲"}：Z 2分 · X 3分 · C 防守 · V 未进</span><span>{project.players.B || "乙"}：A 2分 · S 3分 · D 防守 · F 未进</span><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
         </section>
 
         <aside className="panel inspector-panel">

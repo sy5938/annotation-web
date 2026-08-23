@@ -169,7 +169,7 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
 .timeline-keyframe { bottom: 23px; width: 10px; min-height: 19px; border: 2px solid #fff; border-radius: 4px; background: var(--teal); cursor: grab; touch-action: none; }
 .timeline-keyframe.rim { background: #f2a900; }
 .timeline-keyframe.below { background: #4768d8; }
-.timeline-keyframe.selected { min-height: 27px; box-shadow: 0 0 0 2px #172032; }
+.timeline-keyframe.selected { box-shadow: 0 0 0 2px #172032; }
 .timeline-scale { display: flex; justify-content: space-between; margin-top: 4px; color: #8993a1; font: 8px ui-monospace, monospace; }
 .timeline-empty-hint { margin: 6px 0 0; color: #a03c2c; font-size: 9px; text-align: center; }
 

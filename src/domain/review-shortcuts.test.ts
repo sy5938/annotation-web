@@ -25,4 +25,23 @@ describe("review keyboard shortcuts", () => {
     expect(resolveReviewShortcut({ key: "ArrowRight", shiftKey: true, repeat: false, editable: false }))
       .toEqual({ command: "step-frames", frames: 5 });
   });
+
+  it("maps both player shortcut rows to review events", () => {
+    const resolve = (key: string) => resolveReviewShortcut({ key, shiftKey: false, repeat: false, editable: false });
+
+    expect(resolve("z")).toEqual({ command: "record-event", player: "A", event: "made_2" });
+    expect(resolve("X")).toEqual({ command: "record-event", player: "A", event: "made_3" });
+    expect(resolve("c")).toEqual({ command: "record-event", player: "A", event: "defense" });
+    expect(resolve("V")).toEqual({ command: "record-event", player: "A", event: "missed" });
+    expect(resolve("a")).toEqual({ command: "record-event", player: "B", event: "made_2" });
+    expect(resolve("S")).toEqual({ command: "record-event", player: "B", event: "made_3" });
+    expect(resolve("d")).toEqual({ command: "record-event", player: "B", event: "defense" });
+    expect(resolve("F")).toEqual({ command: "record-event", player: "B", event: "missed" });
+  });
+
+  it("does not repeat or steal editable player event shortcuts", () => {
+    expect(resolveReviewShortcut({ key: "z", shiftKey: false, repeat: true, editable: false }))
+      .toEqual({ command: "consume" });
+    expect(resolveReviewShortcut({ key: "z", shiftKey: false, repeat: false, editable: true })).toBeNull();
+  });
 });
