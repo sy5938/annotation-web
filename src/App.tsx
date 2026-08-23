@@ -18,6 +18,7 @@ import {
 } from "./domain/annotation-project";
 import { buildPreview } from "./domain/preview";
 import { visibleKeyframesAtTime } from "./domain/keyframe-visibility";
+import { findMatchingVideoFile, selectProjectFile } from "./domain/project-folder";
 import { resolveReviewShortcut } from "./domain/review-shortcuts";
 import {
   formatTime,
@@ -99,14 +100,18 @@ export default function App() {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
   }, []);
 
-  function openVideo(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  function attachVideoFile(file: File) {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     const url = URL.createObjectURL(file);
     videoUrlRef.current = url;
     setVideoUrl(url);
     setOpenedVideoName(file.name);
+  }
+
+  function openVideo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    attachVideoFile(file);
     setCurrentTime(0);
     const mismatch = project.source_video.name && project.source_video.name !== file.name;
     dispatch({ type: "set_video", video: { name: file.name } });
@@ -114,36 +119,71 @@ export default function App() {
     event.target.value = "";
   }
 
-  async function importProject(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const parsed = parseAnnotationProject(JSON.parse(await file.text()) as unknown);
+  async function loadProjectFile(file: File, folderFiles?: File[]) {
+    const parsed = parseAnnotationProject(JSON.parse(await file.text()) as unknown);
+    const bundledVideo = folderFiles
+      ? findMatchingVideoFile(folderFiles, file, parsed.project.source_video.name)
+      : null;
+    if (folderFiles && !bundledVideo) {
+      const expected = parsed.project.source_video.name || file.name.replace(/-annotation-project\.json$/i, "");
+      throw new Error(`已找到工程，但同目录没有找到对应视频“${expected}”。`);
+    }
+
+    let importedProject = parsed.project;
+    if (bundledVideo) {
+      attachVideoFile(bundledVideo);
+      importedProject = { ...parsed.project, source_video: { ...parsed.project.source_video, name: bundledVideo.name } };
+    } else {
       const video = videoRef.current;
-      const importedProject = video && Number.isFinite(video.duration) && video.duration > 0
-        ? mergeOpenedVideo(parsed.project, {
-            name: openedVideoName || parsed.project.source_video.name,
-            width: video.videoWidth,
-            height: video.videoHeight,
-            duration_seconds: video.duration,
-          })
-        : parsed.project;
-      dispatch({ type: "replace", project: importedProject });
-      const first = [...importedProject.records].sort((a, b) => recordTime(a) - recordTime(b))[0];
-      setSelectedRecordId(first?.id ?? null);
-      setSelectedKeyframeId(null);
-      setTrajectoryOpen(false);
-      setShowOverlays(true);
-      seek(first ? recordTime(first) : 0);
-      const expectedName = parsed.project.source_video.name;
-      const mismatch = openedVideoName && expectedName && openedVideoName !== expectedName;
-      setNotice(mismatch
+      if (video && Number.isFinite(video.duration) && video.duration > 0) {
+        importedProject = mergeOpenedVideo(parsed.project, {
+          name: openedVideoName || parsed.project.source_video.name,
+          width: video.videoWidth,
+          height: video.videoHeight,
+          duration_seconds: video.duration,
+        });
+      }
+    }
+    dispatch({ type: "replace", project: importedProject });
+    const first = [...importedProject.records].sort((a, b) => recordTime(a) - recordTime(b))[0];
+    const firstTime = first ? recordTime(first) : 0;
+    setSelectedRecordId(first?.id ?? null);
+    setSelectedKeyframeId(null);
+    setTrajectoryOpen(false);
+    setShowOverlays(true);
+    if (bundledVideo) setCurrentTime(firstTime);
+    else seek(firstTime);
+
+    const expectedName = parsed.project.source_video.name;
+    const mismatch = !bundledVideo && openedVideoName && expectedName && openedVideoName !== expectedName;
+    setNotice(bundledVideo
+      ? `工程与视频“${bundledVideo.name}”已一起导入，可直接继续复核。`
+      : mismatch
         ? `工程记录的视频是“${expectedName}”，当前打开的是“${openedVideoName}”，请确认是否匹配。`
         : parsed.migratedFromLegacy
           ? "旧版标注已迁移；已有画面标记已识别，可直接开始人工复核。"
           : "工程已导入；已有画面标记已识别，可直接开始人工复核。");
+  }
+
+  async function importProject(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      await loadProjectFile(file);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "工程导入失败。");
+    }
+    event.target.value = "";
+  }
+
+  async function importProjectFolder(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+    try {
+      const projectFile = selectProjectFile(files);
+      await loadProjectFile(projectFile, files);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "工程文件夹导入失败。");
     }
     event.target.value = "";
   }
@@ -521,7 +561,8 @@ export default function App() {
 
       <div className="project-bar">
         <label className="file-button primary">打开视频<input type="file" accept="video/*" onChange={openVideo} /></label>
-        <label className="file-button">导入工程<input type="file" accept="application/json,.json" onChange={importProject} /></label>
+        <label className="file-button bundle-import">一键导入工程+视频<input type="file" multiple onChange={importProjectFolder} ref={(input) => { if (input) input.webkitdirectory = true; }} /></label>
+        <label className="file-button">仅导入工程<input type="file" accept="application/json,.json" onChange={importProject} /></label>
         <button onClick={exportProject}>导出工程</button>
         <span className="project-name">{project.source_video.name || "尚未选择视频"}</span>
         <span className="notice">{notice}</span>
@@ -575,6 +616,7 @@ export default function App() {
                 const video = videoRef.current;
                 if (!video) return;
                 video.playbackRate = playbackRate;
+                video.currentTime = Math.min(currentTime, video.duration);
                 dispatch({ type: "set_video", video: { width: video.videoWidth, height: video.videoHeight, duration_seconds: video.duration } });
               }} />
               {showOverlays && project.hoop_region && <div className="box hoop-box" style={rectStyle(project.hoop_region, project.source_video)}><span>篮筐</span></div>}

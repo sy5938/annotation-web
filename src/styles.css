@@ -32,9 +32,10 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
 .local-badge small { color: #4d706c; font-size: 10px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #20a487; box-shadow: 0 0 0 5px #20a4871f; }
 
-.project-bar { display: grid; grid-template-columns: auto auto auto minmax(130px, .5fr) minmax(260px, 1fr); gap: 8px; align-items: center; padding: 9px; border: 1px solid var(--line); border-radius: 12px; background: #f8f9fa; }
+.project-bar { display: grid; grid-template-columns: auto auto auto auto minmax(130px, .5fr) minmax(260px, 1fr); gap: 8px; align-items: center; padding: 9px; border: 1px solid var(--line); border-radius: 12px; background: #f8f9fa; }
 .file-button { display: inline-flex; align-items: center; justify-content: center; padding: 8px 12px; }
 .file-button.primary { border-color: var(--ink); background: var(--ink); color: #fff; }
+.file-button.bundle-import { border-color: #9fcac4; background: #eef8f6; color: var(--teal); }
 .file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .project-name, .notice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-name { padding-left: 8px; color: var(--ink); font-size: 12px; font-weight: 750; }
