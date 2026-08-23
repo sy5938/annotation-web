@@ -1,0 +1,129 @@
+{
+  "rim_roi": [
+    925,
+    431,
+    964,
+    457
+  ],
+  "basketball_boxes": [
+    {
+      "x": 992,
+      "y": 347,
+      "x2": 1018,
+      "y2": 374,
+      "phase": "approach",
+      "time_seconds": 5.38
+    },
+    {
+      "x": 941,
+      "y": 419,
+      "x2": 957,
+      "y2": 434,
+      "phase": "approach",
+      "time_seconds": 6.22
+    },
+    {
+      "x": 930,
+      "y": 433,
+      "x2": 952,
+      "y2": 445,
+      "phase": "rim",
+      "time_seconds": 6.59
+    },
+    {
+      "x": 929,
+      "y": 463,
+      "x2": 943,
+      "y2": 470,
+      "phase": "below",
+      "time_seconds": 7.31
+    },
+    {
+      "x": 899,
+      "y": 463,
+      "x2": 918,
+      "y2": 479,
+      "phase": "approach",
+      "time_seconds": 16.47
+    },
+    {
+      "x": 912,
+      "y": 416,
+      "x2": 953,
+      "y2": 446,
+      "phase": "rim",
+      "time_seconds": 16.84
+    },
+    {
+      "x": 946,
+      "y": 465,
+      "x2": 965,
+      "y2": 492,
+      "phase": "below",
+      "time_seconds": 17.46
+    },
+    {
+      "x": 932,
+      "y": 515,
+      "x2": 954,
+      "y2": 535,
+      "phase": "below",
+      "time_seconds": 17.82
+    },
+    {
+      "x": 904,
+      "y": 444,
+      "x2": 946,
+      "y2": 495,
+      "phase": "approach",
+      "time_seconds": 30.42
+    }
+  ],
+  "basketball_points": [
+    {
+      "time_seconds": 5.38,
+      "x": 1005,
+      "y": 361
+    },
+    {
+      "time_seconds": 6.22,
+      "x": 949,
+      "y": 427
+    },
+    {
+      "time_seconds": 6.59,
+      "x": 941,
+      "y": 439
+    },
+    {
+      "time_seconds": 7.31,
+      "x": 936,
+      "y": 467
+    },
+    {
+      "time_seconds": 16.47,
+      "x": 909,
+      "y": 471
+    },
+    {
+      "time_seconds": 16.84,
+      "x": 933,
+      "y": 431
+    },
+    {
+      "time_seconds": 17.46,
+      "x": 956,
+      "y": 479
+    },
+    {
+      "time_seconds": 17.82,
+      "x": 943,
+      "y": 525
+    },
+    {
+      "time_seconds": 30.42,
+      "x": 925,
+      "y": 470
+    }
+  ]
+}
