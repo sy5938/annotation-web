@@ -23,7 +23,7 @@ import {
   type HighlightPlanCommand,
   type HighlightScope,
 } from "./domain/highlight-plan";
-import { decideHighlightPlayback } from "./domain/highlight-playback";
+import { decideHighlightPlayback, highlightPlanInteractionEffect } from "./domain/highlight-playback";
 import { visibleKeyframesAtTime } from "./domain/keyframe-visibility";
 import { findMatchingVideoFile, listProjectFiles } from "./domain/project-folder";
 import {
@@ -321,9 +321,14 @@ export default function App() {
     const nextIndex = Math.max(0, nextView.segments.findIndex((segment) =>
       targetRecordIds.some((recordId) => segment.record_ids.includes(recordId)),
     ));
+    const effect = highlightPlanInteractionEffect(command);
+    dispatch({ type: "replace", project: nextProject });
+    if (effect === "preserve-playback") {
+      setHighlightPlayback((current) => ({ ...current, segmentIndex: nextIndex }));
+      return;
+    }
     videoRef.current?.pause();
     setHighlightPlayback({ active: false, segmentIndex: nextIndex });
-    dispatch({ type: "replace", project: nextProject });
     if (reviewMode === "highlight" && !nextView.events.some((event) => event.included && event.record_id === selectedRecordId)) {
       setSelectedRecordId(nextView.segments[nextIndex]?.record_ids[0] ?? null);
     }
@@ -641,6 +646,7 @@ export default function App() {
         shiftKey: event.shiftKey,
         repeat: event.repeat,
         editable: Boolean(target?.matches("input, select, textarea, [contenteditable='true']")),
+        rangeControl: Boolean(target?.matches('input[type="range"]')),
         metaKey: event.metaKey,
         ctrlKey: event.ctrlKey,
         altKey: event.altKey,
@@ -661,7 +667,7 @@ export default function App() {
 
     function onKeyUp(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
-      if (event.key === " " && !target?.matches("input, select, textarea, [contenteditable='true']")) {
+      if (event.key === " " && (!target?.matches("input, select, textarea, [contenteditable='true']") || target.matches('input[type="range"]'))) {
         event.preventDefault();
       }
     }

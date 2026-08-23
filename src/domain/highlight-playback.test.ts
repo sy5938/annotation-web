@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHighlightPlayback } from "./highlight-playback";
+import { decideHighlightPlayback, highlightPlanInteractionEffect } from "./highlight-playback";
 import type { HighlightSegment } from "./highlight-plan";
 
 const segments: HighlightSegment[] = [
@@ -19,5 +19,16 @@ describe("highlight playback", () => {
   it("stops after the final segment or an invalid selection", () => {
     expect(decideHighlightPlayback(segments, 1, 28)).toEqual({ type: "stop" });
     expect(decideHighlightPlayback(segments, 4, 28)).toEqual({ type: "stop" });
+  });
+
+  it("preserves playback while a selected segment boundary is dragged", () => {
+    expect(highlightPlanInteractionEffect({
+      type: "set-segment-boundaries",
+      record_ids: ["one"],
+      start_seconds: 4,
+      end_seconds: 13,
+    })).toBe("preserve-playback");
+    expect(highlightPlanInteractionEffect({ type: "reset-segment", record_ids: ["one"] }))
+      .toBe("pause-and-seek");
   });
 });

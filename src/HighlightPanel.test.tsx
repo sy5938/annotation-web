@@ -37,6 +37,7 @@ describe("highlight workspace controls", () => {
 
   it("shows all highlight ranges, event markers, and selected-segment handles in one overview", () => {
     const project = highlightedProject();
+    project.records.push({ id: "later", kind: "defense", player: "A", time_seconds: 30 });
     const view = buildHighlightView(project, "A");
     const html = renderToStaticMarkup(<HighlightOverviewTimeline
       project={project}
@@ -50,10 +51,12 @@ describe("highlight workspace controls", () => {
     />);
 
     expect(html).toContain("高光整体视图");
-    expect(html).toContain("片段 1/1");
+    expect(html).toContain("片段 1/2");
     expect(html).toContain("选择高光片段 1");
+    expect(html).toContain("选择高光片段 2");
     expect(html).toContain(">+2<");
     expect(html).toContain(">D<");
+    expect(html.match(/class="highlight-overview-event/g)).toHaveLength(2);
     expect(html.match(/type="range"/g)).toHaveLength(2);
   });
 });

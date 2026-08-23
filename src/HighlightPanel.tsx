@@ -130,17 +130,14 @@ export function HighlightOverviewTimeline({
           onClick={() => onSelect(index)}
           key={segment.record_ids.join("|")}
         />)}
-        {view.events.filter((event) => event.included).map((event) => {
-          const index = view.segments.findIndex((segment) => segment.record_ids.includes(event.record_id));
-          return <button
+        {selectedEvents.map((event) => <button
             className={`highlight-overview-event ${event.kind === "defense" ? "defense" : "made"}`}
             style={{ left: `${position(event.time_seconds)}%` }}
             title={`${project.players[event.player] || event.player} · ${eventLabels[event.kind]} · ${formatTime(event.time_seconds)}`}
             aria-label={`选择${project.players[event.player] || event.player}的${eventLabels[event.kind]}，${formatTime(event.time_seconds)}`}
-            onClick={() => onSelect(index)}
+            onClick={() => onSelect(segmentIndex)}
             key={event.record_id}
-          ><span>{event.kind === "made_2" ? "+2" : event.kind === "made_3" ? "+3" : "D"}</span></button>;
-        })}
+          ><span>{event.kind === "made_2" ? "+2" : event.kind === "made_3" ? "+3" : "D"}</span></button>)}
         {duration > 0 && <div className="highlight-overview-playhead" style={{ left: `${position(currentTime)}%` }} />}
         {selectedSegment && <>
           <input

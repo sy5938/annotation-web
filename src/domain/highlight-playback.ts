@@ -1,4 +1,4 @@
-import type { HighlightSegment } from "./highlight-plan";
+import type { HighlightPlanCommand, HighlightSegment } from "./highlight-plan";
 
 export type HighlightPlaybackDecision =
   | { type: "continue" }
@@ -17,4 +17,10 @@ export function decideHighlightPlayback(
   return next
     ? { type: "seek", segment_index: segmentIndex + 1, start_seconds: next.start_seconds }
     : { type: "stop" };
+}
+
+export function highlightPlanInteractionEffect(
+  command: HighlightPlanCommand,
+): "preserve-playback" | "pause-and-seek" {
+  return command.type === "set-segment-boundaries" ? "preserve-playback" : "pause-and-seek";
 }
