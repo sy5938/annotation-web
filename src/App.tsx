@@ -16,6 +16,8 @@ import {
   type ShotOutcome,
   type ShotRecord,
 } from "./domain/annotation-project";
+import { buildPreview } from "./domain/preview";
+import { resolveReviewShortcut } from "./domain/review-shortcuts";
 import {
   formatTime,
   frameStep,
@@ -27,6 +29,7 @@ import {
 } from "./domain/video-geometry";
 
 type DrawMode = "idle" | "hoop" | "keyframe";
+type EventCategory = "made" | "missed" | "defense" | "unreviewed";
 
 const phaseLabels: Record<Phase, string> = {
   approach: "接近篮筐",
@@ -42,6 +45,12 @@ const outcomeLabels: Record<ShotOutcome, string> = {
 };
 
 const speeds = [0.25, 0.5, 1, 1.5, 2];
+const eventLegend: Array<{ category: EventCategory; label: string }> = [
+  { category: "made", label: "进球" },
+  { category: "missed", label: "未进" },
+  { category: "defense", label: "好防守" },
+  { category: "unreviewed", label: "待确认" },
+];
 
 export default function App() {
   const [project, dispatch] = useReducer(projectReducer, undefined, () => createAnnotationProject());
@@ -50,6 +59,12 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showOverlays, setShowOverlays] = useState(true);
+  const [visibleEvents, setVisibleEvents] = useState<Record<EventCategory, boolean>>({
+    made: true,
+    missed: true,
+    defense: true,
+    unreviewed: true,
+  });
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
@@ -71,6 +86,14 @@ export default function App() {
   const selectedShot = selectedRecord?.kind === "shot" ? selectedRecord : null;
   const selectedKeyframe = selectedShot?.trajectory.find((keyframe) => keyframe.id === selectedKeyframeId) ?? null;
   const timelineDuration = useMemo(() => timelineDurationFor(project), [project]);
+  const preview = useMemo(
+    () => buildPreview(project.records, project.source_video.duration_seconds),
+    [project.records, project.source_video.duration_seconds],
+  );
+  const visibleTimelineRecords = useMemo(
+    () => records.filter((record) => visibleEvents[eventCategory(record)]),
+    [records, visibleEvents],
+  );
   useEffect(() => () => {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
   }, []);
@@ -375,31 +398,86 @@ export default function App() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, select, textarea, button")) return;
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const shortcut = resolveReviewShortcut({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        repeat: event.repeat,
+        editable: Boolean(target?.matches("input, select, textarea, [contenteditable='true']")),
+      });
+      if (!shortcut) return;
+      event.preventDefault();
+      if (shortcut.command === "toggle-playback") togglePlayback();
+      if (shortcut.command === "step-frames") stepFrames(shortcut.frames);
+      if (shortcut.command === "navigate-keyframe") navigateKeyframe(shortcut.direction);
+      if (shortcut.command === "change-speed") changeSpeed(shortcut.direction);
+    }
+
+    function onKeyUp(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (event.key === " " && !target?.matches("input, select, textarea, [contenteditable='true']")) {
         event.preventDefault();
-        stepFrames((event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 5 : 1));
-      } else if (event.key === " ") {
-        event.preventDefault();
-        togglePlayback();
-      } else if (event.key === "[") {
-        event.preventDefault();
-        navigateKeyframe(-1);
-      } else if (event.key === "]") {
-        event.preventDefault();
-        navigateKeyframe(1);
-      } else if (event.key === "-" || event.key === "=") {
-        event.preventDefault();
-        changeSpeed(event.key === "-" ? -1 : 1);
       }
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   });
 
   const visibleKeyframes = selectedShot?.trajectory.filter((keyframe) =>
     keyframe.id === selectedKeyframeId || Math.abs(keyframe.time_seconds - currentTime) <= Math.max(0.15, 0.5 / project.source_video.fps),
   ) ?? [];
+
+  const timeline = (
+    <section className="timeline-panel embedded" aria-label="人工复核时间轴">
+      <div className="timeline-heading">
+        <div><strong>人工复核时间轴</strong><span>{selectedShot ? `${project.players[selectedShot.player]} · ${outcomeLabels[selectedShot.outcome]}` : "拖动空白定位，拖动事件标签修改时间"}</span></div>
+        {trajectoryOpen && <div className="timeline-keyframe-nav"><button onClick={() => navigateKeyframe(-1)} disabled={!selectedShot?.trajectory.length}>上一关键帧</button><button onClick={() => navigateKeyframe(1)} disabled={!selectedShot?.trajectory.length}>下一关键帧</button></div>}
+      </div>
+      <div className="timeline-meta">
+        <div className="event-legend" role="group" aria-label="事件标记显示开关">
+          {eventLegend.map(({ category, label }) => <button
+            className={`legend-toggle ${category}${visibleEvents[category] ? " active" : ""}`}
+            aria-pressed={visibleEvents[category]}
+            key={category}
+            onClick={() => setVisibleEvents((current) => ({ ...current, [category]: !current[category] }))}
+          ><span className="legend-swatch" />{label}</button>)}
+        </div>
+        <div className="preview-summary" aria-label="预览摘要">
+          <div><span>预览时长</span><strong>{preview.ready ? formatTime(preview.total_seconds) : "—"}</strong></div>
+          <div><span>预览片段</span><strong>{preview.ready ? `${preview.segment_count} 段` : "—"}</strong></div>
+        </div>
+      </div>
+      <div className={timelineDuration > 0 ? "timeline-track" : "timeline-track disabled"} ref={timelineRef} onPointerDown={beginTimelineSeek} onPointerMove={continueTimelineSeek}>
+        <div className={preview.ready ? "preview-heatmap" : "preview-heatmap waiting"} aria-hidden="true">
+          {preview.segments.map((segment) => <span
+            className="preview-segment"
+            style={timelineRangeStyle(segment.start_seconds, segment.end_seconds, project.source_video.duration_seconds)}
+            key={`${segment.start_seconds}-${segment.end_seconds}`}
+          />)}
+        </div>
+        <div className="timeline-progress" style={{ width: `${timelinePosition(currentTime, timelineDuration)}%` }} />
+        {visibleTimelineRecords.map((record) => {
+          const category = eventCategory(record);
+          return <button
+            className={`timeline-record ${category}${record.id === selectedRecordId ? " selected" : ""}`}
+            style={{ left: `${timelinePosition(recordTime(record), timelineDuration)}%` }}
+            key={record.id}
+            title={`拖动调整：${project.players[record.player]} · ${record.kind === "shot" ? outcomeLabels[record.outcome] : "好防守"} · ${formatTime(recordTime(record))}`}
+            onPointerDown={(event) => beginRecordDrag(event, record)}
+            onPointerMove={(event) => continueRecordDrag(event, record)}
+            onClick={(event) => { if (event.detail === 0) selectRecord(record); }}
+          ><span>{eventMarkerLabel(record)}</span></button>;
+        })}
+        {trajectoryOpen && selectedShot?.trajectory.map((keyframe) => <button className={keyframe.id === selectedKeyframeId ? `timeline-keyframe ${keyframe.phase} selected` : `timeline-keyframe ${keyframe.phase}`} style={{ left: `${timelinePosition(keyframe.time_seconds, timelineDuration)}%` }} key={keyframe.id} title={`拖动调整：${phaseLabels[keyframe.phase]} ${formatTime(keyframe.time_seconds)}`} onPointerDown={(event) => beginKeyframeDrag(event, keyframe)} onPointerMove={(event) => continueKeyframeDrag(event, keyframe)} onClick={(event) => { if (event.detail === 0) selectKeyframe(keyframe); }} />)}
+      </div>
+      <div className="timeline-scale"><span>0:00</span><span>{formatTime(timelineDuration / 2)}</span><span>{formatTime(timelineDuration)}</span></div>
+      {timelineDuration <= 0 && <p className="timeline-empty-hint">请先打开视频，或导入包含时间记录的工程。</p>}
+    </section>
+  );
 
   return (
     <main>
@@ -456,6 +534,7 @@ export default function App() {
             <label>倍速<select value={playbackRate} onChange={(event) => setSpeed(Number(event.target.value))}>{speeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
             <label>FPS<input type="number" min="1" max="240" value={project.source_video.fps} onChange={(event) => dispatch({ type: "set_video", video: { fps: Math.max(1, Number(event.target.value)) } })} /></label>
           </div>
+          {timeline}
           <div className="video-shell">
             {videoUrl ? <div className="video-stage" style={{ aspectRatio: `${project.source_video.width} / ${project.source_video.height}` }}>
               {/* Local sports footage may be silent and has no known caption source. */}
@@ -514,17 +593,6 @@ export default function App() {
         </aside>
       </section>
 
-      <section className="timeline-panel" aria-label="标定时间轴">
-        <div className="timeline-heading"><div><strong>人工复核时间轴</strong><span>{selectedShot ? `${project.players[selectedShot.player]} · ${outcomeLabels[selectedShot.outcome]}` : "拖动播放头定位；拖动投篮点直接改时间"}</span></div>{trajectoryOpen && <div><button onClick={() => navigateKeyframe(-1)} disabled={!selectedShot?.trajectory.length}>上一关键帧</button><button onClick={() => navigateKeyframe(1)} disabled={!selectedShot?.trajectory.length}>下一关键帧</button></div>}</div>
-        <div className="review-guide"><b>怎么调整：</b><span>① 在空白轨道按住拖动，定位视频</span><span>② 直接拖动红色投篮点，修改结果时间</span>{trajectoryOpen && <span>③ 拖动彩色关键帧，修改关键帧时间</span>}</div>
-        <div className={timelineDuration > 0 ? "timeline-track" : "timeline-track disabled"} ref={timelineRef} onPointerDown={beginTimelineSeek} onPointerMove={continueTimelineSeek}>
-          <div className="timeline-progress" style={{ width: `${timelinePosition(currentTime, timelineDuration)}%` }} />
-          {records.map((record) => <button className={record.id === selectedRecordId ? "timeline-record selected" : "timeline-record"} style={{ left: `${timelinePosition(recordTime(record), timelineDuration)}%` }} key={record.id} title={`拖动调整：${project.players[record.player]} ${formatTime(recordTime(record))}`} onPointerDown={(event) => beginRecordDrag(event, record)} onPointerMove={(event) => continueRecordDrag(event, record)} onClick={(event) => { if (event.detail === 0) selectRecord(record); }} />)}
-          {trajectoryOpen && selectedShot?.trajectory.map((keyframe) => <button className={keyframe.id === selectedKeyframeId ? `timeline-keyframe ${keyframe.phase} selected` : `timeline-keyframe ${keyframe.phase}`} style={{ left: `${timelinePosition(keyframe.time_seconds, timelineDuration)}%` }} key={keyframe.id} title={`拖动调整：${phaseLabels[keyframe.phase]} ${formatTime(keyframe.time_seconds)}`} onPointerDown={(event) => beginKeyframeDrag(event, keyframe)} onPointerMove={(event) => continueKeyframeDrag(event, keyframe)} onClick={(event) => { if (event.detail === 0) selectKeyframe(keyframe); }} />)}
-        </div>
-        <div className="timeline-scale"><span>0:00</span><span>{formatTime(timelineDuration / 2)}</span><span>{formatTime(timelineDuration)}</span></div>
-        {timelineDuration <= 0 && <p className="timeline-empty-hint">请先打开视频，或导入包含时间记录的工程。</p>}
-      </section>
     </main>
   );
 }
@@ -535,4 +603,24 @@ function roundTime(value: number): number {
 
 function timelinePosition(time: number, duration: number): number {
   return duration > 0 ? Math.min(100, Math.max(0, (time / duration) * 100)) : 0;
+}
+
+function timelineRangeStyle(start: number, end: number, duration: number) {
+  return {
+    left: `${timelinePosition(start, duration)}%`,
+    width: `${timelinePosition(end, duration) - timelinePosition(start, duration)}%`,
+  };
+}
+
+function eventCategory(record: AnnotationRecord): EventCategory {
+  if (record.kind === "defense") return "defense";
+  if (record.outcome === "made_2" || record.outcome === "made_3") return "made";
+  return record.outcome === "missed" ? "missed" : "unreviewed";
+}
+
+function eventMarkerLabel(record: AnnotationRecord): string {
+  if (record.kind === "defense") return "防守";
+  if (record.outcome === "made_2") return "+2";
+  if (record.outcome === "made_3") return "+3";
+  return record.outcome === "missed" ? "未进" : "待定";
 }

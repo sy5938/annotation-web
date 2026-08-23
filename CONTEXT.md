@@ -12,9 +12,9 @@ _Avoid_: Session, workspace, annotation file
 The reviewable unit for one player’s shot, combining its result, timestamp, and basketball trajectory.
 _Avoid_: Shot event, score event, completed group
 
-**Bad Defense（防守不好）**:
-A timestamped review event indicating a defensive breakdown, separate from a shot result.
-_Avoid_: Good defense, defensive highlight
+**Good Defense（好防守）**:
+A timestamped review event highlighting a successful defensive play, separate from a shot result.
+_Avoid_: Bad defense, defensive breakdown
 
 **Basketball Trajectory（篮球轨迹）**:
 The ordered basketball boxes associated with one shot record, labelled by their approach, rim, or below-rim phase.
