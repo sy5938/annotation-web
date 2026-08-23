@@ -14,7 +14,7 @@ This repository uses the single-context domain documentation layout.
 /
 ├── CONTEXT.md
 ├── docs/adr/
-└── app/
+└── src/
 ```
 
 ## Vocabulary

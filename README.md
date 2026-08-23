@@ -1,113 +1,59 @@
 # 篮球视频标定台
 
-面向篮球视频的本地优先手动标定工具。视频直接从浏览器读取，不会上传；标定结果以 JSON 文件下载到本机。
+本地优先的篮球视频手动标定工具。视频直接在浏览器中读取，不上传；标定工程保存为可继续编辑的 JSON 文件。
 
-主要功能：
+## 功能
 
-- 记录两名球员的进 2 分、进 3 分、未进与好防守事件
-- 逐帧前进或后退，框选并锁定篮筐位置
-- 按“接近篮筐、经过篮筐、篮下离开”标注篮球框
-- 导出包含投篮事件、比分和目标框的完整 JSON
+- 记录进 2 分、进 3 分、未进和好防守
+- 为每次投篮建立包含结果与篮球轨迹的投篮记录
+- 在标定时间轴中跳转投篮记录和关键帧
+- 逐帧回看、更新时间、重画或删除任意关键帧
+- 调整播放倍速和工程 FPS
+- 导入新版工程，或自动迁移旧版平铺标注 JSON
+- 导出带 `schema_version` 的新版标定工程
 
-## Prerequisites
+## 本地启动
 
-- Node.js `>=22.13.0`
-
-## Quick Start
+需要 Node.js `>=22.13.0`：
 
 ```bash
 npm install
 npm run dev
 ```
 
-终端显示本地地址后，在浏览器中打开它，然后点击“打开本机视频”。日常使用只需要 `npm run dev`；`npm run build` 用于发布前检查。
+打开终端显示的本地地址。日常使用不需要登录，也不需要网络服务。
 
-## 本地数据说明
+## 工作流程
 
-- 选中的视频只通过浏览器本地对象 URL 播放。
-- 当前版本不会将视频或标注发送到服务器。
-- 点击“导出标注 JSON”后，请把 JSON 和原视频放在一起备份。
-- GitHub 仓库只用于保存程序源代码，不用于存放待标定视频。
+1. 点击“打开视频”选择本机视频。
+2. 播放到投篮结果，记录球员与结果。
+3. 选择该投篮记录，在对应画面添加“接近篮筐、经过篮筐、篮下离开”关键帧。
+4. 从左侧记录或底部时间轴跳转回看；停到新画面后更新时间或重画已有关键帧。
+5. 点击“导出工程”保存 JSON。以后先导入工程，再选择对应视频即可继续。
 
-This starter does not use `wrangler.jsonc`.
+浏览器不会根据 JSON 中的文件名自行读取本机视频路径，因此导入工程后需要再次选择视频；工具会提示文件名是否匹配。
 
-## 技术结构
+## 快捷键
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- `空格`：播放或暂停
+- `←` / `→`：前后移动一帧
+- `Shift + ←` / `Shift + →`：前后移动五帧
+- `[` / `]`：切换关键帧
+- `-` / `+`：调整播放倍速
 
-## Workspace Auth Headers
+## 数据与代码结构
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+- `src/domain/annotation-project.ts`：标定工程、投篮记录、关键帧、版本迁移与导出规则
+- `src/domain/video-geometry.ts`：帧步进和视频坐标换算
+- `src/App.tsx`：本地工作台与浏览器视频 Adapter
+- `tests/fixtures/legacy-annotation.json`：旧格式迁移样例
+- `CONTEXT.md`：领域词汇
+- `docs/adr/`：架构决策
 
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
+## 检查
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm test
+npm run lint
+npm run build
 ```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
