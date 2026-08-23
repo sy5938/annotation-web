@@ -1,5 +1,5 @@
 import { ChangeEvent, PointerEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { HighlightModeControls, HighlightTrimBar } from "./HighlightPanel";
+import { HighlightModeControls, HighlightOverviewTimeline, HighlightTrimBar } from "./HighlightPanel";
 import {
   createAnnotationProject,
   mergeOpenedVideo,
@@ -817,7 +817,25 @@ export default function App() {
               <label>倍速<select value={playbackRate} onChange={(event) => setSpeed(Number(event.target.value))}>{speeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
               <label>FPS<input type="number" min="1" max="240" value={project.source_video.fps} onChange={(event) => dispatch({ type: "set_video", video: { fps: Math.max(1, Number(event.target.value)) } })} /></label>
             </div>
-            {reviewMode === "annotation" && timeline}
+            {reviewMode === "annotation" ? timeline : <>
+              <HighlightOverviewTimeline
+                project={project}
+                view={highlightView}
+                segmentIndex={highlightPlayback.segmentIndex}
+                currentTime={currentTime}
+                onSelect={selectHighlightSegment}
+              />
+              <HighlightTrimBar
+                project={project}
+                view={highlightView}
+                segmentIndex={highlightPlayback.segmentIndex}
+                currentTime={currentTime}
+                previewing={highlightPlayback.active}
+                onCommand={applyHighlightCommand}
+                onSelect={selectHighlightSegment}
+                onPlay={startHighlightPreview}
+              />
+            </>}
           </div>
           <div className="video-shell">
             {videoUrl ? <div className="video-stage" style={{ aspectRatio: `${project.source_video.width} / ${project.source_video.height}` }}>
@@ -838,16 +856,6 @@ export default function App() {
               {drawMode !== "idle" && <div className="drawing-layer" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = drawingPoint(event); setDrawStart(point); setDraftRect({ ...point, x2: point.x, y2: point.y }); }} onPointerMove={(event) => { if (drawStart) setDraftRect(rectFromPoints(drawStart, drawingPoint(event))); }} onPointerUp={finishDrawing} onPointerCancel={cancelDrawing} />}
             </div> : <div className="video-empty"><strong>打开本机视频开始标定</strong><span>导入工程后仍需选择对应视频，浏览器不会读取任意本机路径。</span></div>}
           </div>
-          {reviewMode === "highlight" && <HighlightTrimBar
-            project={project}
-            view={highlightView}
-            segmentIndex={highlightPlayback.segmentIndex}
-            currentTime={currentTime}
-            previewing={highlightPlayback.active}
-            onCommand={applyHighlightCommand}
-            onSelect={selectHighlightSegment}
-            onPlay={startHighlightPreview}
-          />}
           <div className="overlay-controls" aria-label="画面标记显示设置">
             <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>

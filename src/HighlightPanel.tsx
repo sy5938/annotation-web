@@ -67,6 +67,62 @@ export function HighlightModeControls({
   );
 }
 
+type HighlightOverviewTimelineProps = {
+  project: AnnotationProject;
+  view: HighlightView;
+  segmentIndex: number;
+  currentTime: number;
+  onSelect: (segmentIndex: number) => void;
+};
+
+export function HighlightOverviewTimeline({
+  project,
+  view,
+  segmentIndex,
+  currentTime,
+  onSelect,
+}: HighlightOverviewTimelineProps) {
+  const duration = project.source_video.duration_seconds;
+  const firstSegment = view.segments[0];
+  const lastSegment = view.segments[view.segments.length - 1];
+  const position = (time: number) => duration > 0 ? Math.min(100, Math.max(0, (time / duration) * 100)) : 0;
+
+  return (
+    <section className="highlight-overview-panel" aria-label="高光整体时间轴">
+      <div className="highlight-overview-heading">
+        <div><strong>高光整体视图</strong><span>完整视频中的所有保留区间和事件点</span></div>
+        <div className="highlight-overview-summary">
+          <span>分布 <strong>{firstSegment && lastSegment ? `${formatTime(firstSegment.start_seconds)} – ${formatTime(lastSegment.end_seconds)}` : "—"}</strong></span>
+          <span>保留 <strong>{formatTime(view.total_seconds)}</strong></span>
+          <span><strong>{view.segments.length}</strong> 段</span>
+        </div>
+      </div>
+      <div className={duration > 0 ? "highlight-overview-track" : "highlight-overview-track disabled"}>
+        {view.segments.map((segment, index) => <button
+          className={index === segmentIndex ? "highlight-overview-segment selected" : "highlight-overview-segment"}
+          style={{ left: `${position(segment.start_seconds)}%`, width: `${position(segment.end_seconds) - position(segment.start_seconds)}%` }}
+          aria-label={`选择高光片段 ${index + 1}，${formatTime(segment.start_seconds)} 到 ${formatTime(segment.end_seconds)}`}
+          onClick={() => onSelect(index)}
+          key={segment.record_ids.join("|")}
+        />)}
+        {view.events.filter((event) => event.included).map((event) => {
+          const index = view.segments.findIndex((segment) => segment.record_ids.includes(event.record_id));
+          return <button
+            className={`highlight-overview-event ${event.kind === "defense" ? "defense" : "made"}`}
+            style={{ left: `${position(event.time_seconds)}%` }}
+            title={`${project.players[event.player] || event.player} · ${eventLabels[event.kind]} · ${formatTime(event.time_seconds)}`}
+            aria-label={`选择${project.players[event.player] || event.player}的${eventLabels[event.kind]}，${formatTime(event.time_seconds)}`}
+            onClick={() => onSelect(index)}
+            key={event.record_id}
+          ><span>{event.kind === "made_2" ? "+2" : event.kind === "made_3" ? "+3" : "D"}</span></button>;
+        })}
+        {duration > 0 && <div className="highlight-overview-playhead" style={{ left: `${position(currentTime)}%` }} />}
+      </div>
+      <div className="highlight-overview-scale"><span>0:00</span><span>{formatTime(duration / 2)}</span><span>{formatTime(duration)}</span></div>
+    </section>
+  );
+}
+
 type HighlightTrimBarProps = {
   project: AnnotationProject;
   view: HighlightView;

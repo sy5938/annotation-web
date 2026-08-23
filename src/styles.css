@@ -212,7 +212,27 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
 .highlight-preview-actions { display: grid; grid-template-columns: 1fr auto; gap: 5px; }
 .highlight-preview-actions button { min-height: 32px; padding: 5px 8px; font-size: 9px; }
 
-.highlight-trim-panel { margin-top: 8px; padding: 11px 13px 9px; border: 1px solid #9fcac4; border-radius: 10px; background: #fff; box-shadow: 0 5px 18px #1b665d12; }
+.highlight-overview-panel { padding: 11px 14px 8px; border: 1px solid var(--line); border-top: 0; background: #fff; }
+.highlight-overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.highlight-overview-heading > div:first-child { display: grid; gap: 2px; }
+.highlight-overview-heading strong { font-size: 11px; }
+.highlight-overview-heading span { color: var(--muted); font-size: 8px; }
+.highlight-overview-summary { display: flex; gap: 5px; }
+.highlight-overview-summary span { padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9f9; white-space: nowrap; }
+.highlight-overview-summary strong { color: var(--teal); font: 9px ui-monospace, monospace; }
+.highlight-overview-track { position: relative; height: 65px; margin-top: 8px; border: 1px solid #d8dee7; border-radius: 7px; background: repeating-linear-gradient(90deg, #f5f7f9 0, #f5f7f9 calc(10% - 1px), #e4e8ed calc(10% - 1px), #e4e8ed 10%); overflow: hidden; }
+.highlight-overview-track.disabled { opacity: .55; }
+.highlight-overview-segment { position: absolute; z-index: 1; bottom: 5px; min-width: 4px; min-height: 15px; padding: 0; border: 1px solid #208c58; border-radius: 3px; background: #3cb878; opacity: .78; }
+.highlight-overview-segment.selected { z-index: 2; border: 2px solid #095f4b; background: #24a273; opacity: 1; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #095f4b; }
+.highlight-overview-event { position: absolute; z-index: 4; top: 8px; min-width: 27px; width: auto; min-height: 25px; padding: 3px 5px; border: 2px solid #fff; border-radius: 6px; color: #fff; transform: translateX(-50%); box-shadow: 0 0 0 1px #15754e; }
+.highlight-overview-event:hover:not(:disabled) { transform: translateX(-50%) translateY(-1px); }
+.highlight-overview-event.made { background: #1f9d6a; }
+.highlight-overview-event.defense { background: #d9a514; color: #302400; box-shadow: 0 0 0 1px #9d7410; }
+.highlight-overview-event span { font: 8px ui-monospace, monospace; white-space: nowrap; }
+.highlight-overview-playhead { position: absolute; z-index: 3; top: 0; bottom: 0; width: 2px; background: var(--accent); transform: translateX(-50%); pointer-events: none; }
+.highlight-overview-scale { display: flex; justify-content: space-between; margin-top: 3px; color: #8993a1; font: 8px ui-monospace, monospace; }
+
+.highlight-trim-panel { padding: 10px 13px 9px; border: 1px solid #9fcac4; border-top: 0; border-radius: 0 0 10px 10px; background: #fff; box-shadow: 0 5px 18px #1b665d12; }
 .highlight-trim-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .highlight-trim-heading > div:first-child { display: grid; gap: 2px; }
 .highlight-trim-heading strong { font-size: 11px; }
@@ -240,6 +260,7 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
   .inspector-panel { position: static; grid-column: 1 / -1; max-height: none; overflow: visible; }
   .inspector-content { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .optional-trajectory, .delete-record { grid-column: 1 / -1; }
+  .highlight-overview-heading { align-items: stretch; flex-direction: column; }
   .highlight-trim-heading { align-items: stretch; flex-direction: column; }
 }
 
@@ -261,5 +282,6 @@ h1 { margin: 0; font-size: clamp(29px, 3vw, 45px); line-height: 1; letter-spacin
   .video-empty { min-height: 52vw; }
   .inspector-content { grid-template-columns: 1fr; }
   .optional-trajectory, .delete-record { grid-column: auto; }
+  .highlight-overview-summary { display: grid; grid-template-columns: 1fr 1fr 1fr; }
   .highlight-segment-nav { display: grid; grid-template-columns: 1fr 1fr; }
 }

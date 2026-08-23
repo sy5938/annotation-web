@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { HighlightModeControls, HighlightTrimBar, highlightTrimBounds } from "./HighlightPanel";
+import { HighlightModeControls, HighlightOverviewTimeline, HighlightTrimBar, highlightTrimBounds } from "./HighlightPanel";
 import { createAnnotationProject } from "./domain/annotation-project";
 import { buildHighlightView } from "./domain/highlight-plan";
 
@@ -52,6 +52,24 @@ describe("highlight workspace controls", () => {
     expect(html).toContain("高光片段 1 / 1");
     expect(html).toContain("拖动左、右手柄调整当前片段");
     expect(html.match(/type="range"/g)).toHaveLength(2);
+  });
+
+  it("shows all highlight ranges and event markers on the full-video overview", () => {
+    const project = highlightedProject();
+    const view = buildHighlightView(project, "A");
+    const html = renderToStaticMarkup(<HighlightOverviewTimeline
+      project={project}
+      view={view}
+      segmentIndex={0}
+      currentTime={10}
+      onSelect={vi.fn()}
+    />);
+
+    expect(html).toContain("高光整体视图");
+    expect(html).toContain("完整视频中的所有保留区间和事件点");
+    expect(html).toContain("选择高光片段 1");
+    expect(html).toContain(">+2<");
+    expect(html).toContain(">D<");
   });
 
   it("limits the editing scale to five seconds around the default clip", () => {
