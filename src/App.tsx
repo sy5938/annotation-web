@@ -45,6 +45,9 @@ export default function App() {
   const [videoUrl, setVideoUrl] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [showHoopOverlay, setShowHoopOverlay] = useState(true);
+  const [showTrajectoryOverlay, setShowTrajectoryOverlay] = useState(false);
+  const [trajectoryOpen, setTrajectoryOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState<DrawMode>("idle");
@@ -62,6 +65,7 @@ export default function App() {
   );
   const selectedRecord = project.records.find((record) => record.id === selectedRecordId) ?? null;
   const selectedShot = selectedRecord?.kind === "shot" ? selectedRecord : null;
+  const selectedKeyframe = selectedShot?.trajectory.find((keyframe) => keyframe.id === selectedKeyframeId) ?? null;
   useEffect(() => () => {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
   }, []);
@@ -88,7 +92,8 @@ export default function App() {
       dispatch({ type: "replace", project: parsed.project });
       const first = [...parsed.project.records].sort((a, b) => recordTime(a) - recordTime(b))[0];
       setSelectedRecordId(first?.id ?? null);
-      setSelectedKeyframeId(first?.kind === "shot" ? first.trajectory[0]?.id ?? null : null);
+      setSelectedKeyframeId(null);
+      setTrajectoryOpen(false);
       setNotice(parsed.migratedFromLegacy ? "旧版标注已迁移到新版工程，请选择对应视频后检查记录。" : "工程已导入，请选择对应视频继续回看。 ");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "工程导入失败。");
@@ -117,6 +122,7 @@ export default function App() {
     dispatch({ type: "add_record", record });
     setSelectedRecordId(record.id);
     setSelectedKeyframeId(null);
+    setTrajectoryOpen(false);
   }
 
   function addDefense(player: PlayerId) {
@@ -129,6 +135,7 @@ export default function App() {
     dispatch({ type: "add_record", record });
     setSelectedRecordId(record.id);
     setSelectedKeyframeId(null);
+    setTrajectoryOpen(false);
   }
 
   function stepFrames(frames: number) {
@@ -163,9 +170,9 @@ export default function App() {
 
   function selectRecord(record: AnnotationRecord) {
     setSelectedRecordId(record.id);
-    const first = record.kind === "shot" ? record.trajectory[0] : null;
-    setSelectedKeyframeId(first?.id ?? null);
-    seek(first?.time_seconds ?? recordTime(record));
+    setSelectedKeyframeId(null);
+    setTrajectoryOpen(false);
+    seek(recordTime(record));
   }
 
   function navigateRecord(direction: number) {
@@ -176,13 +183,54 @@ export default function App() {
 
   function selectKeyframe(keyframe: Keyframe) {
     setSelectedKeyframeId(keyframe.id);
+    setTrajectoryOpen(true);
     seek(keyframe.time_seconds);
   }
 
   function navigateKeyframe(direction: number) {
     if (!selectedShot?.trajectory.length) return;
-    const index = Math.max(0, selectedShot.trajectory.findIndex((frame) => frame.id === selectedKeyframeId));
-    selectKeyframe(selectedShot.trajectory[Math.max(0, Math.min(selectedShot.trajectory.length - 1, index + direction))]);
+    const index = selectedShot.trajectory.findIndex((frame) => frame.id === selectedKeyframeId);
+    const nextIndex = index < 0
+      ? (direction < 0 ? selectedShot.trajectory.length - 1 : 0)
+      : Math.max(0, Math.min(selectedShot.trajectory.length - 1, index + direction));
+    selectKeyframe(selectedShot.trajectory[nextIndex]);
+  }
+
+  function nudgeSelectedKeyframe(frames: number) {
+    if (!selectedShot || !selectedKeyframe) return;
+    const time = frameStep(
+      selectedKeyframe.time_seconds,
+      frames,
+      project.source_video.fps,
+      videoRef.current?.duration || project.source_video.duration_seconds || Number.POSITIVE_INFINITY,
+    );
+    dispatch({
+      type: "update_keyframe",
+      shotId: selectedShot.id,
+      keyframeId: selectedKeyframe.id,
+      patch: { time_seconds: roundTime(time) },
+    });
+    seek(time);
+  }
+
+  function moveSelectedKeyframeToCurrentTime() {
+    if (!selectedShot || !selectedKeyframe) return;
+    dispatch({
+      type: "update_keyframe",
+      shotId: selectedShot.id,
+      keyframeId: selectedKeyframe.id,
+      patch: { time_seconds: roundTime(currentTime) },
+    });
+  }
+
+  function deleteSelectedKeyframe() {
+    if (!selectedShot || !selectedKeyframe) return;
+    const index = selectedShot.trajectory.findIndex((keyframe) => keyframe.id === selectedKeyframe.id);
+    const remaining = selectedShot.trajectory.filter((keyframe) => keyframe.id !== selectedKeyframe.id);
+    dispatch({ type: "delete_keyframe", shotId: selectedShot.id, keyframeId: selectedKeyframe.id });
+    const next = remaining[Math.min(index, remaining.length - 1)];
+    setSelectedKeyframeId(next?.id ?? null);
+    if (next) seek(next.time_seconds);
   }
 
   function beginKeyframeDraw(phase: Phase, keyframeId: string | null = null) {
@@ -246,6 +294,7 @@ export default function App() {
     dispatch({ type: "delete_record", id: selectedRecord.id });
     setSelectedRecordId(null);
     setSelectedKeyframeId(null);
+    setTrajectoryOpen(false);
   }
 
   useEffect(() => {
@@ -342,11 +391,16 @@ export default function App() {
                 video.playbackRate = playbackRate;
                 dispatch({ type: "set_video", video: { width: video.videoWidth, height: video.videoHeight, duration_seconds: video.duration } });
               }} />
-              {project.hoop_region && <div className="box hoop-box" style={rectStyle(project.hoop_region, project.source_video)}><span>篮筐</span></div>}
-              {visibleKeyframes.map((keyframe) => <div className={keyframe.id === selectedKeyframeId ? "box ball-box selected" : "box ball-box"} style={rectStyle(keyframe.box, project.source_video)} key={keyframe.id}><span>{phaseLabels[keyframe.phase]}</span></div>)}
+              {showHoopOverlay && project.hoop_region && <div className="box hoop-box" style={rectStyle(project.hoop_region, project.source_video)}><span>篮筐</span></div>}
+              {showTrajectoryOverlay && visibleKeyframes.map((keyframe) => <div className={keyframe.id === selectedKeyframeId ? "box ball-box selected" : "box ball-box"} style={rectStyle(keyframe.box, project.source_video)} key={keyframe.id}><span>{phaseLabels[keyframe.phase]}</span></div>)}
               {draftRect && <div className="box draft-box" style={rectStyle(draftRect, project.source_video)} />}
               {drawMode !== "idle" && <div className="drawing-layer" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = drawingPoint(event); setDrawStart(point); setDraftRect({ ...point, x2: point.x, y2: point.y }); }} onPointerMove={(event) => { if (drawStart) setDraftRect(rectFromPoints(drawStart, drawingPoint(event))); }} onPointerUp={finishDrawing} onPointerCancel={cancelDrawing} />}
             </div> : <div className="video-empty"><strong>打开本机视频开始标定</strong><span>导入工程后仍需选择对应视频，浏览器不会读取任意本机路径。</span></div>}
+          </div>
+          <div className="overlay-controls" aria-label="画面标记显示设置">
+            <span>画面标记</span>
+            <button className={showHoopOverlay ? "active" : ""} aria-pressed={showHoopOverlay} onClick={() => setShowHoopOverlay((visible) => !visible)} disabled={!project.hoop_region}>{showHoopOverlay ? "隐藏篮筐" : "显示篮筐"}</button>
+            <button className={showTrajectoryOverlay ? "active" : ""} aria-pressed={showTrajectoryOverlay} onClick={() => setShowTrajectoryOverlay((visible) => !visible)} disabled={!selectedShot?.trajectory.length}>{showTrajectoryOverlay ? "隐藏球框" : "显示球框"}</button>
           </div>
           <div className="keyboard-hint"><span>空格 播放/暂停</span><span>← → 逐帧</span><span>Shift + ← → 五帧</span><span>[ ] 切换关键帧</span><span>− + 调整倍速</span></div>
         </section>
@@ -360,11 +414,26 @@ export default function App() {
             {selectedRecord.kind === "shot" && <>
               <label>投篮结果<select value={selectedRecord.outcome} onChange={(event) => dispatch({ type: "update_shot", id: selectedRecord.id, patch: { outcome: event.target.value as ShotOutcome } })}>{Object.entries(outcomeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
               <button onClick={() => dispatch({ type: "update_shot", id: selectedRecord.id, patch: { result_time_seconds: roundTime(currentTime) } })}>将结果时间更新到当前帧</button>
-              <div className="phase-actions">{(Object.keys(phaseLabels) as Phase[]).map((phase) => <button key={phase} onClick={() => beginKeyframeDraw(phase)}>+ {phaseLabels[phase]}</button>)}</div>
-              <div className="keyframe-list">{selectedRecord.trajectory.map((keyframe, index) => <article className={keyframe.id === selectedKeyframeId ? "keyframe selected" : "keyframe"} key={keyframe.id}>
-                <button className="keyframe-main" onClick={() => selectKeyframe(keyframe)}><span>{index + 1}. {phaseLabels[keyframe.phase]}</span><time>{formatTime(keyframe.time_seconds)}</time></button>
-                <div><button onClick={() => dispatch({ type: "update_keyframe", shotId: selectedRecord.id, keyframeId: keyframe.id, patch: { time_seconds: roundTime(currentTime) } })}>更新时间</button><button onClick={() => beginKeyframeDraw(keyframe.phase, keyframe.id)}>重画</button><button className="danger" onClick={() => dispatch({ type: "delete_keyframe", shotId: selectedRecord.id, keyframeId: keyframe.id })}>删除</button></div>
-              </article>)}</div>
+              <section className="optional-trajectory">
+                <button className="optional-trajectory-toggle" aria-expanded={trajectoryOpen} onClick={() => setTrajectoryOpen((open) => !open)}>
+                  <span><strong>球位置关键帧</strong><small>可选 · 暂不影响投篮记录</small></span>
+                  <b>{selectedRecord.trajectory.length} 帧 · {trajectoryOpen ? "收起" : "展开"}</b>
+                </button>
+                {trajectoryOpen && <div className="trajectory-editor">
+                  <div className="phase-actions">{(Object.keys(phaseLabels) as Phase[]).map((phase) => <button key={phase} onClick={() => beginKeyframeDraw(phase)}>+ {phaseLabels[phase]}</button>)}</div>
+                  <div className="keyframe-list">{selectedRecord.trajectory.map((keyframe, index) => <button className={keyframe.id === selectedKeyframeId ? "keyframe selected" : "keyframe"} key={keyframe.id} onClick={() => selectKeyframe(keyframe)}>
+                    <span><b>{index + 1}</b>{phaseLabels[keyframe.phase]}</span><time>{formatTime(keyframe.time_seconds)}</time>
+                  </button>)}</div>
+                  {!selectedRecord.trajectory.length && <p className="empty-state">这是可选标注。需要时停到对应画面，再添加球位置关键帧。</p>}
+                  {selectedKeyframe && <div className="keyframe-editor">
+                    <div className="keyframe-editor-heading"><span><strong>当前关键帧</strong><small>{formatTime(selectedKeyframe.time_seconds)}</small></span><button onClick={() => setSelectedKeyframeId(null)}>取消选择</button></div>
+                    <label>阶段<select value={selectedKeyframe.phase} onChange={(event) => dispatch({ type: "update_keyframe", shotId: selectedRecord.id, keyframeId: selectedKeyframe.id, patch: { phase: event.target.value as Phase } })}>{Object.entries(phaseLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                    <div className="keyframe-nudge"><button onClick={() => nudgeSelectedKeyframe(-1)}>−1 帧</button><button onClick={() => nudgeSelectedKeyframe(1)}>+1 帧</button></div>
+                    <button className="primary-action" onClick={moveSelectedKeyframeToCurrentTime}>设为当前播放帧</button>
+                    <div className="keyframe-secondary"><button onClick={() => beginKeyframeDraw(selectedKeyframe.phase, selectedKeyframe.id)}>在当前帧重画</button><button className="danger" onClick={deleteSelectedKeyframe}>删除关键帧</button></div>
+                  </div>}
+                </div>}
+              </section>
             </>}
             {selectedRecord.kind === "defense" && <button onClick={() => dispatch({ type: "update_defense", id: selectedRecord.id, patch: { time_seconds: roundTime(currentTime) } })}>将时间更新到当前帧</button>}
             <button className="delete-record" onClick={deleteSelectedRecord}>删除整条记录</button>
@@ -373,11 +442,11 @@ export default function App() {
       </section>
 
       <section className="timeline-panel" aria-label="标定时间轴">
-        <div className="timeline-heading"><div><strong>标定时间轴</strong><span>{selectedShot ? `${project.players[selectedShot.player]} · ${outcomeLabels[selectedShot.outcome]}` : "点击标记跳转回看"}</span></div><div><button onClick={() => navigateKeyframe(-1)} disabled={!selectedShot?.trajectory.length}>上一个关键帧</button><button onClick={() => navigateKeyframe(1)} disabled={!selectedShot?.trajectory.length}>下一个关键帧</button></div></div>
+        <div className="timeline-heading"><div><strong>投篮时间轴</strong><span>{selectedShot ? `${project.players[selectedShot.player]} · ${outcomeLabels[selectedShot.outcome]}` : "点击投篮标记跳转回看"}</span></div>{trajectoryOpen && <div><button onClick={() => navigateKeyframe(-1)} disabled={!selectedShot?.trajectory.length}>上一关键帧</button><button onClick={() => navigateKeyframe(1)} disabled={!selectedShot?.trajectory.length}>下一关键帧</button></div>}</div>
         <div className="timeline-track">
           <div className="timeline-progress" style={{ width: `${timelinePosition(currentTime, project.source_video.duration_seconds)}%` }} />
           {records.map((record) => <button className={record.id === selectedRecordId ? "timeline-record selected" : "timeline-record"} style={{ left: `${timelinePosition(recordTime(record), project.source_video.duration_seconds)}%` }} key={record.id} title={`${project.players[record.player]} ${formatTime(recordTime(record))}`} onClick={() => selectRecord(record)} />)}
-          {selectedShot?.trajectory.map((keyframe) => <button className={keyframe.id === selectedKeyframeId ? `timeline-keyframe ${keyframe.phase} selected` : `timeline-keyframe ${keyframe.phase}`} style={{ left: `${timelinePosition(keyframe.time_seconds, project.source_video.duration_seconds)}%` }} key={keyframe.id} title={`${phaseLabels[keyframe.phase]} ${formatTime(keyframe.time_seconds)}`} onClick={() => selectKeyframe(keyframe)} />)}
+          {trajectoryOpen && selectedShot?.trajectory.map((keyframe) => <button className={keyframe.id === selectedKeyframeId ? `timeline-keyframe ${keyframe.phase} selected` : `timeline-keyframe ${keyframe.phase}`} style={{ left: `${timelinePosition(keyframe.time_seconds, project.source_video.duration_seconds)}%` }} key={keyframe.id} title={`${phaseLabels[keyframe.phase]} ${formatTime(keyframe.time_seconds)}`} onClick={() => selectKeyframe(keyframe)} />)}
         </div>
         <div className="timeline-scale"><span>0:00</span><span>{formatTime(project.source_video.duration_seconds / 2)}</span><span>{formatTime(project.source_video.duration_seconds)}</span></div>
       </section>
