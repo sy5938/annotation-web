@@ -1,5 +1,5 @@
 import { ChangeEvent, PointerEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { HighlightPanel } from "./HighlightPanel";
+import { HighlightModeControls, HighlightTrimBar } from "./HighlightPanel";
 import {
   createAnnotationProject,
   mergeOpenedVideo,
@@ -47,6 +47,7 @@ import {
 
 type DrawMode = "idle" | "hoop" | "keyframe";
 type EventCategory = "made" | "missed" | "defense" | "unreviewed";
+type ReviewMode = "annotation" | "highlight";
 
 const phaseLabels: Record<Phase, string> = {
   approach: "接近篮筐",
@@ -94,6 +95,7 @@ export default function App() {
   const [workspaceProjects, setWorkspaceProjects] = useState<File[]>([]);
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState("");
   const [recordHistory, setRecordHistory] = useState<RecordHistory>(emptyRecordHistory);
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("annotation");
   const [highlightScope, setHighlightScope] = useState<HighlightScope>("all");
   const [highlightPlayback, setHighlightPlayback] = useState({ active: false, segmentIndex: 0 });
   const [notice, setNotice] = useState("打开视频，或导入已有标定工程继续工作。");
@@ -113,6 +115,14 @@ export default function App() {
   const highlightView = useMemo(
     () => buildHighlightView(project, highlightScope),
     [project, highlightScope],
+  );
+  const highlightRecordIds = useMemo(
+    () => new Set(highlightView.events.filter((event) => event.included).map((event) => event.record_id)),
+    [highlightView.events],
+  );
+  const displayedRecords = useMemo(
+    () => reviewMode === "highlight" ? records.filter((record) => highlightRecordIds.has(record.id)) : records,
+    [highlightRecordIds, records, reviewMode],
   );
   const visibleTimelineRecords = useMemo(
     () => records.filter((record) => visibleEvents[eventCategory(record)]),
@@ -174,6 +184,7 @@ export default function App() {
     setSelectedKeyframeId(null);
     setTrajectoryOpen(false);
     setShowOverlays(true);
+    setReviewMode("annotation");
     setHighlightScope("all");
     setHighlightPlayback({ active: false, segmentIndex: 0 });
     if (bundledVideo) setCurrentTime(firstTime);
@@ -294,7 +305,7 @@ export default function App() {
   }
 
   function seek(time: number) {
-    setHighlightPlayback((current) => current.active ? { active: false, segmentIndex: 0 } : current);
+    setHighlightPlayback((current) => current.active ? { ...current, active: false } : current);
     const video = videoRef.current;
     if (video) video.currentTime = time;
     setCurrentTime(time);
@@ -303,10 +314,20 @@ export default function App() {
   function applyHighlightCommand(command: HighlightPlanCommand) {
     const nextProject = updateHighlightPlan(project, highlightScope, command);
     const nextView = buildHighlightView(nextProject, highlightScope);
+    const currentSegment = highlightView.segments[highlightPlayback.segmentIndex];
+    const targetRecordIds = command.type === "set-segment-boundaries" || command.type === "reset-segment"
+      ? command.record_ids
+      : currentSegment?.record_ids ?? [];
+    const nextIndex = Math.max(0, nextView.segments.findIndex((segment) =>
+      targetRecordIds.some((recordId) => segment.record_ids.includes(recordId)),
+    ));
     videoRef.current?.pause();
-    setHighlightPlayback({ active: false, segmentIndex: 0 });
+    setHighlightPlayback({ active: false, segmentIndex: nextIndex });
     dispatch({ type: "replace", project: nextProject });
-    if (nextView.segments[0]) seek(nextView.segments[0].start_seconds);
+    if (reviewMode === "highlight" && !nextView.events.some((event) => event.included && event.record_id === selectedRecordId)) {
+      setSelectedRecordId(nextView.segments[nextIndex]?.record_ids[0] ?? null);
+    }
+    if (nextView.segments[nextIndex]) seek(nextView.segments[nextIndex].start_seconds);
   }
 
   function changeHighlightScope(scope: HighlightScope) {
@@ -314,7 +335,29 @@ export default function App() {
     videoRef.current?.pause();
     setHighlightScope(scope);
     setHighlightPlayback({ active: false, segmentIndex: 0 });
+    if (reviewMode === "highlight") setSelectedRecordId(nextView.segments[0]?.record_ids[0] ?? null);
     if (nextView.segments[0]) seek(nextView.segments[0].start_seconds);
+  }
+
+  function changeReviewMode(mode: ReviewMode) {
+    videoRef.current?.pause();
+    setReviewMode(mode);
+    setHighlightPlayback({ active: false, segmentIndex: 0 });
+    if (mode === "highlight") {
+      const firstSegment = highlightView.segments[0];
+      const firstRecordId = firstSegment?.record_ids[0];
+      setSelectedRecordId(firstRecordId ?? null);
+      if (firstSegment) seek(firstSegment.start_seconds);
+    }
+  }
+
+  function selectHighlightSegment(segmentIndex: number) {
+    const segment = highlightView.segments[segmentIndex];
+    if (!segment) return;
+    videoRef.current?.pause();
+    setHighlightPlayback({ active: false, segmentIndex });
+    setSelectedRecordId(segment.record_ids[0] ?? null);
+    seek(segment.start_seconds);
   }
 
   function startHighlightPreview(segmentIndex: number) {
@@ -330,7 +373,7 @@ export default function App() {
 
   function stopHighlightPreview() {
     videoRef.current?.pause();
-    setHighlightPlayback({ active: false, segmentIndex: 0 });
+    setHighlightPlayback((current) => ({ ...current, active: false }));
   }
 
   function handleVideoTimeUpdate() {
@@ -342,12 +385,13 @@ export default function App() {
     if (decision.type === "continue") return;
     if (decision.type === "stop") {
       video.pause();
-      setHighlightPlayback({ active: false, segmentIndex: 0 });
+      setHighlightPlayback((current) => ({ ...current, active: false }));
       return;
     }
     highlightSeekRef.current = true;
     video.currentTime = decision.start_seconds;
     setCurrentTime(decision.start_seconds);
+    setSelectedRecordId(highlightView.segments[decision.segment_index]?.record_ids[0] ?? null);
     setHighlightPlayback({ active: true, segmentIndex: decision.segment_index });
   }
 
@@ -376,9 +420,9 @@ export default function App() {
   }
 
   function navigateRecord(direction: number) {
-    if (!records.length) return;
-    const currentIndex = Math.max(0, records.findIndex((record) => record.id === selectedRecordId));
-    selectRecord(records[Math.max(0, Math.min(records.length - 1, currentIndex + direction))]);
+    if (!displayedRecords.length) return;
+    const currentIndex = Math.max(0, displayedRecords.findIndex((record) => record.id === selectedRecordId));
+    selectRecord(displayedRecords[Math.max(0, Math.min(displayedRecords.length - 1, currentIndex + direction))]);
   }
 
   function selectKeyframe(keyframe: Keyframe) {
@@ -607,12 +651,12 @@ export default function App() {
       if (shortcut.command === "seek-seconds") seekSeconds(shortcut.seconds);
       if (shortcut.command === "navigate-keyframe") navigateKeyframe(shortcut.direction);
       if (shortcut.command === "change-speed") changeSpeed(shortcut.direction);
-      if (shortcut.command === "record-event") {
+      if (shortcut.command === "record-event" && reviewMode === "annotation") {
         if (shortcut.event === "defense") addDefense(shortcut.player);
         else addShot(shortcut.player, shortcut.event);
       }
-      if (shortcut.command === "undo-record") undoRecord();
-      if (shortcut.command === "redo-record") redoRecord();
+      if (shortcut.command === "undo-record" && reviewMode === "annotation") undoRecord();
+      if (shortcut.command === "redo-record" && reviewMode === "annotation") redoRecord();
     }
 
     function onKeyUp(event: KeyboardEvent) {
@@ -714,8 +758,22 @@ export default function App() {
 
       <section className="workspace">
         <aside className="panel records-panel">
-          <div className="panel-heading"><span>01</span><h2>投篮记录</h2><b>{records.length}</b></div>
-          <div className="scoreboard">
+          <div className="panel-heading"><span>01</span><h2>{reviewMode === "annotation" ? "投篮记录" : "高光事件"}</h2><b>{displayedRecords.length}</b></div>
+          <div className="review-mode-tabs" role="tablist" aria-label="工作模式">
+            <button role="tab" aria-selected={reviewMode === "annotation"} className={reviewMode === "annotation" ? "active" : ""} onClick={() => changeReviewMode("annotation")}>全部事件</button>
+            <button role="tab" aria-selected={reviewMode === "highlight"} className={reviewMode === "highlight" ? "active" : ""} onClick={() => changeReviewMode("highlight")}>高光</button>
+          </div>
+          {reviewMode === "highlight" && <HighlightModeControls
+            project={project}
+            scope={highlightScope}
+            view={highlightView}
+            previewing={highlightPlayback.active}
+            onScopeChange={changeHighlightScope}
+            onCommand={applyHighlightCommand}
+            onStart={() => startHighlightPreview(0)}
+            onStop={stopHighlightPreview}
+          />}
+          {reviewMode === "annotation" && <><div className="scoreboard">
             {(["A", "B"] as PlayerId[]).map((player) => <div key={player}>
               <input aria-label={`${player} 球员名称`} value={project.players[player]} onChange={(event) => dispatch({ type: "set_player_name", player, name: event.target.value })} />
               <strong>{scoreFor(project, player)}</strong>
@@ -729,16 +787,25 @@ export default function App() {
               <button onClick={() => addShot(player, "missed")}>未进</button>
               <button onClick={() => addDefense(player)}>好防守</button>
             </div>)}
-          </div>
+          </div></>}
           <div className="record-list">
-            {records.map((record, index) => <button className={record.id === selectedRecordId ? "record selected" : "record"} key={record.id} onClick={() => selectRecord(record)}>
-              <span className="record-index">{String(index + 1).padStart(2, "0")}</span>
-              <span><strong>{project.players[record.player] || record.player}</strong><small>{record.kind === "shot" ? outcomeLabels[record.outcome] : "好防守"} · {formatTime(recordTime(record))}</small></span>
-              {record.kind === "shot" && <em>{record.trajectory.length} 帧</em>}
-            </button>)}
-            {!records.length && <p className="empty-state">播放到结果画面后，从上方快速记录第一球。</p>}
+            {displayedRecords.map((record, index) => <div className={record.id === selectedRecordId ? "record-row selected" : "record-row"} key={record.id}>
+              <button className="record" onClick={() => {
+                if (reviewMode === "highlight") {
+                  const segmentIndex = highlightView.segments.findIndex((segment) => segment.record_ids.includes(record.id));
+                  if (segmentIndex >= 0) setHighlightPlayback({ active: false, segmentIndex });
+                }
+                selectRecord(record);
+              }}>
+                <span className="record-index">{String(index + 1).padStart(2, "0")}</span>
+                <span><strong>{project.players[record.player] || record.player}</strong><small>{record.kind === "shot" ? outcomeLabels[record.outcome] : "好防守"} · {formatTime(recordTime(record))}</small></span>
+                {record.kind === "shot" && <em>{record.trajectory.length} 帧</em>}
+              </button>
+              {reviewMode === "highlight" && <button className="remove-highlight-event" title="从当前高光范围移出" aria-label={`从高光移出 ${project.players[record.player] || record.player} ${formatTime(recordTime(record))}`} onClick={() => applyHighlightCommand({ type: "set-record-included", record_id: record.id, included: false })}>移出</button>}
+            </div>)}
+            {!displayedRecords.length && <p className="empty-state">{reviewMode === "highlight" ? "当前范围没有已收录的高光事件。" : "播放到结果画面后，从上方快速记录第一球。"}</p>}
           </div>
-          <div className="record-history-actions"><button onClick={undoRecord} disabled={!recordHistory.past.length}>撤销 <span>⌘Z</span></button><button onClick={redoRecord} disabled={!recordHistory.future.length}>重做 <span>⇧⌘Z</span></button></div>
+          {reviewMode === "annotation" && <div className="record-history-actions"><button onClick={undoRecord} disabled={!recordHistory.past.length}>撤销 <span>⌘Z</span></button><button onClick={redoRecord} disabled={!recordHistory.future.length}>重做 <span>⇧⌘Z</span></button></div>}
         </aside>
 
         <section className="video-column">
@@ -750,14 +817,14 @@ export default function App() {
               <label>倍速<select value={playbackRate} onChange={(event) => setSpeed(Number(event.target.value))}>{speeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
               <label>FPS<input type="number" min="1" max="240" value={project.source_video.fps} onChange={(event) => dispatch({ type: "set_video", video: { fps: Math.max(1, Number(event.target.value)) } })} /></label>
             </div>
-            {timeline}
+            {reviewMode === "annotation" && timeline}
           </div>
           <div className="video-shell">
             {videoUrl ? <div className="video-stage" style={{ aspectRatio: `${project.source_video.width} / ${project.source_video.height}` }}>
               {/* Local sports footage may be silent and has no known caption source. */}
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
               <video ref={videoRef} controls src={videoUrl} onTimeUpdate={handleVideoTimeUpdate} onSeeking={() => {
-                if (!highlightSeekRef.current) setHighlightPlayback({ active: false, segmentIndex: 0 });
+                if (!highlightSeekRef.current) setHighlightPlayback((current) => ({ ...current, active: false }));
               }} onSeeked={() => { highlightSeekRef.current = false; }} onLoadedMetadata={() => {
                 const video = videoRef.current;
                 if (!video) return;
@@ -771,6 +838,16 @@ export default function App() {
               {drawMode !== "idle" && <div className="drawing-layer" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const point = drawingPoint(event); setDrawStart(point); setDraftRect({ ...point, x2: point.x, y2: point.y }); }} onPointerMove={(event) => { if (drawStart) setDraftRect(rectFromPoints(drawStart, drawingPoint(event))); }} onPointerUp={finishDrawing} onPointerCancel={cancelDrawing} />}
             </div> : <div className="video-empty"><strong>打开本机视频开始标定</strong><span>导入工程后仍需选择对应视频，浏览器不会读取任意本机路径。</span></div>}
           </div>
+          {reviewMode === "highlight" && <HighlightTrimBar
+            project={project}
+            view={highlightView}
+            segmentIndex={highlightPlayback.segmentIndex}
+            currentTime={currentTime}
+            previewing={highlightPlayback.active}
+            onCommand={applyHighlightCommand}
+            onSelect={selectHighlightSegment}
+            onPlay={startHighlightPreview}
+          />}
           <div className="overlay-controls" aria-label="画面标记显示设置">
             <button className={showOverlays ? "active" : ""} aria-pressed={showOverlays} onClick={() => setShowOverlays((visible) => !visible)} disabled={!project.hoop_region && !selectedShot?.trajectory.length}>{showOverlays ? "隐藏画面标记" : "显示画面标记"}</button>
           </div>
@@ -786,7 +863,7 @@ export default function App() {
 
         <aside className="panel inspector-panel">
           <div className="panel-heading"><span>02</span><h2>记录检查</h2></div>
-          <div className="navigator"><button onClick={() => navigateRecord(-1)} disabled={!records.length}>上一条</button><button onClick={() => navigateRecord(1)} disabled={!records.length}>下一条</button></div>
+          <div className="navigator"><button onClick={() => navigateRecord(-1)} disabled={!displayedRecords.length}>上一条</button><button onClick={() => navigateRecord(1)} disabled={!displayedRecords.length}>下一条</button></div>
           <div className="hoop-actions"><button className={drawMode === "hoop" ? "active" : ""} onClick={() => { videoRef.current?.pause(); setDrawMode("hoop"); }}>框选篮筐</button><button onClick={() => dispatch({ type: "set_hoop", hoop: null })} disabled={!project.hoop_region}>清除</button></div>
           {selectedRecord ? <div className="inspector-content">
             <label>球员<select value={selectedRecord.player} onChange={(event) => selectedRecord.kind === "shot" ? dispatch({ type: "update_shot", id: selectedRecord.id, patch: { player: event.target.value as PlayerId } }) : dispatch({ type: "update_defense", id: selectedRecord.id, patch: { player: event.target.value as PlayerId } })}><option value="A">{project.players.A}</option><option value="B">{project.players.B}</option></select></label>
@@ -819,18 +896,6 @@ export default function App() {
           </div> : <p className="empty-state">从左侧选择一条记录，或先新增投篮结果。</p>}
         </aside>
       </section>
-
-      <HighlightPanel
-        project={project}
-        scope={highlightScope}
-        view={highlightView}
-        previewing={highlightPlayback.active}
-        activeSegmentIndex={highlightPlayback.segmentIndex}
-        onScopeChange={changeHighlightScope}
-        onCommand={applyHighlightCommand}
-        onStart={startHighlightPreview}
-        onStop={stopHighlightPreview}
-      />
 
     </main>
   );
