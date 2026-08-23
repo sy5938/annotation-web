@@ -1,4 +1,6 @@
-export const ANNOTATION_SCHEMA_VERSION = 2 as const;
+import { createEmptyHighlightPlans, invalidateHighlightPlans, type SavedHighlightPlans } from "./highlight-plan";
+
+export const ANNOTATION_SCHEMA_VERSION = 3 as const;
 
 export type PlayerId = "A" | "B";
 export type Phase = "approach" | "rim" | "below";
@@ -44,6 +46,7 @@ export type AnnotationProject = {
   players: Record<PlayerId, string>;
   previous_scores: Record<PlayerId, number>;
   records: AnnotationRecord[];
+  highlight_plans: SavedHighlightPlans;
 };
 
 export type ProjectAction =
@@ -75,6 +78,7 @@ export function createAnnotationProject(videoName = ""): AnnotationProject {
     players: { A: "甲", B: "乙" },
     previous_scores: { A: 0, B: 0 },
     records: [],
+    highlight_plans: createEmptyHighlightPlans(),
   };
 }
 
@@ -113,17 +117,25 @@ export function projectReducer(project: AnnotationProject, action: ProjectAction
     case "add_record":
       return { ...project, records: [...project.records, action.record] };
     case "update_shot":
-      return updateRecord(project, action.id, (record) =>
+      return invalidateHighlightIntent(updateRecord(project, action.id, (record) =>
         record.kind === "shot" ? { ...record, ...action.patch } : record,
-      );
+      ), [action.id]);
     case "update_defense":
-      return updateRecord(project, action.id, (record) =>
+      return invalidateHighlightIntent(updateRecord(project, action.id, (record) =>
         record.kind === "defense" ? { ...record, ...action.patch } : record,
-      );
+      ), [action.id]);
     case "delete_record":
-      return { ...project, records: project.records.filter((record) => record.id !== action.id) };
+      return invalidateHighlightIntent(
+        { ...project, records: project.records.filter((record) => record.id !== action.id) },
+        [action.id],
+        true,
+      );
     case "replace_records":
-      return { ...project, records: action.records };
+      return invalidateHighlightIntent(
+        { ...project, records: action.records },
+        project.records.filter((record) => !action.records.some((candidate) => candidate.id === record.id)).map((record) => record.id),
+        true,
+      );
     case "add_keyframe":
       return updateShot(project, action.shotId, (shot) => ({
         ...shot,
@@ -142,6 +154,14 @@ export function projectReducer(project: AnnotationProject, action: ProjectAction
         trajectory: shot.trajectory.filter((keyframe) => keyframe.id !== action.keyframeId),
       }));
   }
+}
+
+function invalidateHighlightIntent(
+  project: AnnotationProject,
+  recordIds: string[],
+  removeRecords = false,
+): AnnotationProject {
+  return { ...project, highlight_plans: invalidateHighlightPlans(project.highlight_plans, recordIds, removeRecords) };
 }
 
 function updateRecord(
@@ -190,15 +210,22 @@ export function projectFileName(project: AnnotationProject): string {
   return `${base}-annotation-project.json`;
 }
 
-export function parseAnnotationProject(value: unknown): { project: AnnotationProject; migratedFromLegacy: boolean } {
+export function parseAnnotationProject(value: unknown): { project: AnnotationProject; migratedFromLegacy: boolean; warnings: string[] } {
   if (!isObject(value)) throw new Error("工程文件不是有效的 JSON 对象。");
   if (value.schema_version === ANNOTATION_SCHEMA_VERSION) {
-    return { project: parseVersionTwo(value), migratedFromLegacy: false };
+    const project = parseVersioned(value);
+    const parsedPlans = parseHighlightPlans(value.highlight_plans, project.records, project.source_video.duration_seconds);
+    project.highlight_plans = parsedPlans.plans;
+    return { project, migratedFromLegacy: false, warnings: parsedPlans.warnings };
   }
-  return { project: migrateLegacy(value), migratedFromLegacy: true };
+  if (value.schema_version === 2) {
+    return { project: parseVersioned(value), migratedFromLegacy: false, warnings: [] };
+  }
+  if (value.schema_version !== undefined) throw new Error(`不支持的工程版本：${String(value.schema_version)}`);
+  return { project: migrateLegacy(value), migratedFromLegacy: true, warnings: [] };
 }
 
-function parseVersionTwo(value: Record<string, unknown>): AnnotationProject {
+function parseVersioned(value: Record<string, unknown>): AnnotationProject {
   const source = isObject(value.source_video) ? value.source_video : {};
   const project = createAnnotationProject(asString(source.name));
   project.source_video = {
@@ -215,6 +242,73 @@ function parseVersionTwo(value: Record<string, unknown>): AnnotationProject {
     ? value.records.map(parseRecord).filter((record): record is AnnotationRecord => record !== null)
     : [];
   return project;
+}
+
+function parseHighlightPlans(
+  value: unknown,
+  records: AnnotationRecord[],
+  videoDuration: number,
+): { plans: SavedHighlightPlans; warnings: string[] } {
+  const plans = createEmptyHighlightPlans();
+  if (value === undefined) return { plans, warnings: [] };
+  if (!isObject(value)) return { plans, warnings: ["高光方案格式无效，已按默认规则重建。"] };
+  const recordIds = new Set(records.map((record) => record.id));
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  let invalid = false;
+  for (const scope of ["all", "A", "B"] as const) {
+    const candidate = value[scope];
+    if (candidate === undefined) continue;
+    if (!isObject(candidate)) {
+      invalid = true;
+      continue;
+    }
+    const excluded = Array.isArray(candidate.excluded_record_ids)
+      ? candidate.excluded_record_ids.filter((id): id is string => {
+          const valid = typeof id === "string" && recordIds.has(id);
+          if (!valid) invalid = true;
+          return valid;
+        })
+      : [];
+    if (candidate.excluded_record_ids !== undefined && !Array.isArray(candidate.excluded_record_ids)) invalid = true;
+    const edits = Array.isArray(candidate.segment_edits)
+      ? candidate.segment_edits.flatMap((edit) => {
+          if (!isObject(edit) || !Array.isArray(edit.record_ids)) {
+            invalid = true;
+            return [];
+          }
+          const ids = edit.record_ids.filter((id): id is string => typeof id === "string" && recordIds.has(id));
+          const startSeconds = typeof edit.start_seconds === "number" ? edit.start_seconds : Number.NaN;
+          const endSeconds = typeof edit.end_seconds === "number" ? edit.end_seconds : Number.NaN;
+          const referenced = ids.map((id) => recordsById.get(id)).filter((record): record is AnnotationRecord => Boolean(record));
+          const valid = ids.length === edit.record_ids.length
+            && ids.length > 0
+            && Number.isFinite(startSeconds)
+            && startSeconds >= 0
+            && Number.isFinite(endSeconds)
+            && endSeconds > startSeconds
+            && (videoDuration <= 0 || endSeconds <= videoDuration)
+            && referenced.every((record) => isPositiveHighlight(record)
+              && (scope === "all" || record.player === scope)
+              && startSeconds <= recordTime(record)
+              && endSeconds >= recordTime(record));
+          if (!valid) {
+            invalid = true;
+            return [];
+          }
+          return [{ record_ids: [...new Set(ids)].sort(), start_seconds: startSeconds, end_seconds: endSeconds }];
+        })
+      : [];
+    if (candidate.segment_edits !== undefined && !Array.isArray(candidate.segment_edits)) invalid = true;
+    plans[scope] = { excluded_record_ids: [...new Set(excluded)], segment_edits: edits };
+  }
+  return {
+    plans,
+    warnings: invalid ? ["部分高光方案无效，已按默认规则重建。"] : [],
+  };
+}
+
+function isPositiveHighlight(record: AnnotationRecord): boolean {
+  return record.kind === "defense" || record.outcome === "made_2" || record.outcome === "made_3";
 }
 
 function parseRecord(value: unknown, index: number): AnnotationRecord | null {

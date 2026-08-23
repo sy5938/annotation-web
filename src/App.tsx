@@ -1,4 +1,5 @@
 import { ChangeEvent, PointerEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { HighlightPanel } from "./HighlightPanel";
 import {
   createAnnotationProject,
   mergeOpenedVideo,
@@ -16,7 +17,13 @@ import {
   type ShotOutcome,
   type ShotRecord,
 } from "./domain/annotation-project";
-import { buildPreview } from "./domain/preview";
+import {
+  buildHighlightView,
+  updateHighlightPlan,
+  type HighlightPlanCommand,
+  type HighlightScope,
+} from "./domain/highlight-plan";
+import { decideHighlightPlayback } from "./domain/highlight-playback";
 import { visibleKeyframesAtTime } from "./domain/keyframe-visibility";
 import { findMatchingVideoFile, listProjectFiles } from "./domain/project-folder";
 import {
@@ -87,10 +94,13 @@ export default function App() {
   const [workspaceProjects, setWorkspaceProjects] = useState<File[]>([]);
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState("");
   const [recordHistory, setRecordHistory] = useState<RecordHistory>(emptyRecordHistory);
+  const [highlightScope, setHighlightScope] = useState<HighlightScope>("all");
+  const [highlightPlayback, setHighlightPlayback] = useState({ active: false, segmentIndex: 0 });
   const [notice, setNotice] = useState("打开视频，或导入已有标定工程继续工作。");
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const videoUrlRef = useRef("");
+  const highlightSeekRef = useRef(false);
 
   const records = useMemo(
     () => [...project.records].sort((a, b) => recordTime(a) - recordTime(b)),
@@ -100,9 +110,9 @@ export default function App() {
   const selectedShot = selectedRecord?.kind === "shot" ? selectedRecord : null;
   const selectedKeyframe = selectedShot?.trajectory.find((keyframe) => keyframe.id === selectedKeyframeId) ?? null;
   const timelineDuration = useMemo(() => timelineDurationFor(project), [project]);
-  const preview = useMemo(
-    () => buildPreview(project.records, project.source_video.duration_seconds),
-    [project.records, project.source_video.duration_seconds],
+  const highlightView = useMemo(
+    () => buildHighlightView(project, highlightScope),
+    [project, highlightScope],
   );
   const visibleTimelineRecords = useMemo(
     () => records.filter((record) => visibleEvents[eventCategory(record)]),
@@ -164,18 +174,21 @@ export default function App() {
     setSelectedKeyframeId(null);
     setTrajectoryOpen(false);
     setShowOverlays(true);
+    setHighlightScope("all");
+    setHighlightPlayback({ active: false, segmentIndex: 0 });
     if (bundledVideo) setCurrentTime(firstTime);
     else seek(firstTime);
 
     const expectedName = parsed.project.source_video.name;
     const mismatch = !bundledVideo && openedVideoName && expectedName && openedVideoName !== expectedName;
-    setNotice(bundledVideo
+    const importNotice = bundledVideo
       ? `工程与视频“${bundledVideo.name}”已一起导入，可直接继续复核。`
       : mismatch
         ? `工程记录的视频是“${expectedName}”，当前打开的是“${openedVideoName}”，请确认是否匹配。`
         : parsed.migratedFromLegacy
           ? "旧版标注已迁移；已有画面标记已识别，可直接开始人工复核。"
-          : "工程已导入；已有画面标记已识别，可直接开始人工复核。");
+          : "工程已导入；已有画面标记已识别，可直接开始人工复核。";
+    setNotice(parsed.warnings[0] ? `${importNotice} ${parsed.warnings[0]}` : importNotice);
   }
 
   async function importProject(event: ChangeEvent<HTMLInputElement>) {
@@ -281,9 +294,61 @@ export default function App() {
   }
 
   function seek(time: number) {
+    setHighlightPlayback((current) => current.active ? { active: false, segmentIndex: 0 } : current);
     const video = videoRef.current;
     if (video) video.currentTime = time;
     setCurrentTime(time);
+  }
+
+  function applyHighlightCommand(command: HighlightPlanCommand) {
+    const nextProject = updateHighlightPlan(project, highlightScope, command);
+    const nextView = buildHighlightView(nextProject, highlightScope);
+    videoRef.current?.pause();
+    setHighlightPlayback({ active: false, segmentIndex: 0 });
+    dispatch({ type: "replace", project: nextProject });
+    if (nextView.segments[0]) seek(nextView.segments[0].start_seconds);
+  }
+
+  function changeHighlightScope(scope: HighlightScope) {
+    const nextView = buildHighlightView(project, scope);
+    videoRef.current?.pause();
+    setHighlightScope(scope);
+    setHighlightPlayback({ active: false, segmentIndex: 0 });
+    if (nextView.segments[0]) seek(nextView.segments[0].start_seconds);
+  }
+
+  function startHighlightPreview(segmentIndex: number) {
+    const video = videoRef.current;
+    const segment = highlightView.segments[segmentIndex];
+    if (!video || !segment) return;
+    highlightSeekRef.current = true;
+    video.currentTime = segment.start_seconds;
+    setCurrentTime(segment.start_seconds);
+    setHighlightPlayback({ active: true, segmentIndex });
+    void video.play();
+  }
+
+  function stopHighlightPreview() {
+    videoRef.current?.pause();
+    setHighlightPlayback({ active: false, segmentIndex: 0 });
+  }
+
+  function handleVideoTimeUpdate() {
+    const video = videoRef.current;
+    if (!video) return;
+    setCurrentTime(video.currentTime);
+    if (!highlightPlayback.active) return;
+    const decision = decideHighlightPlayback(highlightView.segments, highlightPlayback.segmentIndex, video.currentTime);
+    if (decision.type === "continue") return;
+    if (decision.type === "stop") {
+      video.pause();
+      setHighlightPlayback({ active: false, segmentIndex: 0 });
+      return;
+    }
+    highlightSeekRef.current = true;
+    video.currentTime = decision.start_seconds;
+    setCurrentTime(decision.start_seconds);
+    setHighlightPlayback({ active: true, segmentIndex: decision.segment_index });
   }
 
   function togglePlayback() {
@@ -591,13 +656,13 @@ export default function App() {
           ><span className="legend-swatch" />{label}</button>)}
         </div>
         <div className="preview-summary" aria-label="预览摘要">
-          <div><span>预览时长</span><strong>{preview.ready ? formatTime(preview.total_seconds) : "—"}</strong></div>
-          <div><span>预览片段</span><strong>{preview.ready ? `${preview.segment_count} 段` : "—"}</strong></div>
+          <div><span>高光时长</span><strong>{highlightView.ready ? formatTime(highlightView.total_seconds) : "—"}</strong></div>
+          <div><span>高光片段</span><strong>{highlightView.ready ? `${highlightView.segments.length} 段` : "—"}</strong></div>
         </div>
       </div>
       <div className={timelineDuration > 0 ? "timeline-track" : "timeline-track disabled"} ref={timelineRef} onPointerDown={beginTimelineSeek} onPointerMove={continueTimelineSeek}>
-        <div className={preview.ready ? "preview-heatmap" : "preview-heatmap waiting"} aria-hidden="true">
-          {preview.segments.map((segment) => <span
+        <div className={highlightView.ready ? "preview-heatmap" : "preview-heatmap waiting"} aria-hidden="true">
+          {highlightView.segments.map((segment) => <span
             className="preview-segment"
             style={timelineRangeStyle(segment.start_seconds, segment.end_seconds, project.source_video.duration_seconds)}
             key={`${segment.start_seconds}-${segment.end_seconds}`}
@@ -627,7 +692,7 @@ export default function App() {
     <main>
       <header className="app-header">
         <div>
-          <p className="eyebrow">COURTSIDE LABEL · LOCAL · V0.1</p>
+          <p className="eyebrow">COURTSIDE LABEL · LOCAL · V0.2 PREVIEW</p>
           <h1>篮球视频标定台</h1>
           <p className="intro">工程、视频与标注只在本机处理。用时间轴回看投篮，并直接覆盖需要调整的关键帧。</p>
         </div>
@@ -691,7 +756,9 @@ export default function App() {
             {videoUrl ? <div className="video-stage" style={{ aspectRatio: `${project.source_video.width} / ${project.source_video.height}` }}>
               {/* Local sports footage may be silent and has no known caption source. */}
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <video ref={videoRef} controls src={videoUrl} onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)} onLoadedMetadata={() => {
+              <video ref={videoRef} controls src={videoUrl} onTimeUpdate={handleVideoTimeUpdate} onSeeking={() => {
+                if (!highlightSeekRef.current) setHighlightPlayback({ active: false, segmentIndex: 0 });
+              }} onSeeked={() => { highlightSeekRef.current = false; }} onLoadedMetadata={() => {
                 const video = videoRef.current;
                 if (!video) return;
                 video.playbackRate = playbackRate;
@@ -752,6 +819,18 @@ export default function App() {
           </div> : <p className="empty-state">从左侧选择一条记录，或先新增投篮结果。</p>}
         </aside>
       </section>
+
+      <HighlightPanel
+        project={project}
+        scope={highlightScope}
+        view={highlightView}
+        previewing={highlightPlayback.active}
+        activeSegmentIndex={highlightPlayback.segmentIndex}
+        onScopeChange={changeHighlightScope}
+        onCommand={applyHighlightCommand}
+        onStart={startHighlightPreview}
+        onStop={stopHighlightPreview}
+      />
 
     </main>
   );
