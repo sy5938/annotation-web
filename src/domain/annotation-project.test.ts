@@ -8,7 +8,7 @@ import {
   scoreFor,
   serializeAnnotationProject,
   timelineDurationFor,
-  type AnnotationProject,
+  type ExportedAnnotationProject,
   type ShotRecord,
 } from "./annotation-project";
 
@@ -100,15 +100,20 @@ describe("Annotation Project", () => {
     ];
     source.highlight_plans.A.excluded_record_ids = ["made"];
 
-    const exported = JSON.parse(serializeAnnotationProject(source)) as AnnotationProject;
+    const exported = JSON.parse(serializeAnnotationProject(source)) as ExportedAnnotationProject;
 
     expect(scoreFor(source, "A")).toBe(13);
     expect(scoreFor(source, "B")).toBe(8);
     expect(exported.schema_version).toBe(3);
     expect(exported.previous_scores).toEqual({ A: 11, B: 8 });
+    expect(exported.final_scores).toEqual({ A: 13, B: 8 });
     expect(exported.records).toEqual(source.records);
     expect(exported.records[0].kind === "shot" && exported.records[0].trajectory).toHaveLength(1);
     expect(exported.highlight_plans).toEqual(source.highlight_plans);
+
+    const reopened = parseAnnotationProject(exported).project;
+    expect(scoreFor(reopened, "A")).toBe(13);
+    expect(scoreFor(reopened, "B")).toBe(8);
   });
 
   it("migrates schema v2 with empty highlight plans", () => {

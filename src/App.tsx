@@ -751,7 +751,7 @@ export default function App() {
 
       <div className="project-bar">
         <label className="file-button primary">打开视频<input type="file" accept="video/*" onChange={openVideo} /></label>
-        <label className="file-button bundle-import">打开工作文件夹<input type="file" multiple onChange={importProjectFolder} ref={(input) => { if (input) input.webkitdirectory = true; }} /></label>
+        <label className="file-button bundle-import" title="选择本机目录；视频和工程不会上传">选择本地工作文件夹<input type="file" multiple onChange={importProjectFolder} ref={(input) => { if (input) input.webkitdirectory = true; }} /></label>
         <label className="file-button">仅导入工程<input type="file" accept="application/json,.json" onChange={importProject} /></label>
         <button onClick={exportProject}>导出工程</button>
         <span className="project-name">{project.source_video.name || "尚未选择视频"}</span>

@@ -49,6 +49,11 @@ export type AnnotationProject = {
   highlight_plans: SavedHighlightPlans;
 };
 
+export type ExportedAnnotationProject = AnnotationProject & {
+  /** Read-only summary for people and downstream export tools; recomputed on import. */
+  final_scores: Record<PlayerId, number>;
+};
+
 export type ProjectAction =
   | { type: "replace"; project: AnnotationProject }
   | { type: "set_video"; video: Partial<AnnotationProject["source_video"]> }
@@ -208,7 +213,17 @@ export function recordTime(record: AnnotationRecord): number {
 }
 
 export function serializeAnnotationProject(project: AnnotationProject): string {
-  return JSON.stringify(project, null, 2);
+  const exported: ExportedAnnotationProject = {
+    schema_version: project.schema_version,
+    source_video: project.source_video,
+    hoop_region: project.hoop_region,
+    players: project.players,
+    previous_scores: project.previous_scores,
+    final_scores: { A: scoreFor(project, "A"), B: scoreFor(project, "B") },
+    records: project.records,
+    highlight_plans: project.highlight_plans,
+  };
+  return JSON.stringify(exported, null, 2);
 }
 
 export function projectFileName(project: AnnotationProject): string {
