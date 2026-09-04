@@ -87,3 +87,14 @@ npm test
 npm run lint
 npm run build
 ```
+
+## 累计 SY 高光统计字幕
+
+将同一场比赛的原始 SY SRT 按时间顺序传入。首段作为累计基数，不生成新文件；之后每段都会在同一目录生成带 `_累计.srt` 后缀的文件。时间戳和“总得分”文本保持原样，只更新“命中 / 出手 命中率”。
+
+```bash
+npm run accumulate-sy-srt -- \
+  '/path/to/第一段_sy高光_高光统计字幕.srt' \
+  '/path/to/第二段_sy高光_高光统计字幕.srt' \
+  '/path/to/第三段_sy高光_高光统计字幕.srt'
+```
